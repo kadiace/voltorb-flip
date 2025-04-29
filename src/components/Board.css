@@ -1,0 +1,162 @@
+/* 전체 wrapper */
+.board-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+}
+
+/* 버튼 영역 */
+.button-row {
+  display: flex;
+  gap: 1rem;
+}
+
+.control-button {
+  padding: 0.5rem 1rem;
+  font-size: 1rem;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  background-color: #007bff;
+  color: white;
+  transition: background-color 0.2s;
+}
+
+.control-button:hover {
+  background-color: #0056b3;
+}
+
+/* 고정형 그리드 레이아웃 */
+.board-grid-fixed {
+  display: grid;
+  grid-template-columns: repeat(7, 50px);
+  grid-template-rows: repeat(7, 50px);
+  gap: 5px;
+}
+
+.cell {
+  width: 50px;
+  height: 50px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+/* 게임 셀 */
+.game-cell {
+  width: 100%;
+  height: 100%;
+  text-align: center;
+  font-size: 1.2rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  transition:
+    background-color 0.2s,
+    color 0.2s,
+    border-color 0.2s;
+  background-color: #f9f9f9;
+  color: #000000;
+}
+
+/* 위험도 색상 (기본 Light Theme) */
+.game-cell.recommend {
+  background-color: #d4edda; /* 연한 초록 */
+  border-color: #28a745;
+}
+
+.game-cell.mid {
+  background-color: #fff3cd; /* 연한 노랑 */
+  border-color: #ffc107;
+}
+
+.game-cell.voltorb {
+  background-color: #f8d7da; /* 연한 빨강 */
+  border-color: #dc3545;
+}
+
+/* 힌트 셀 */
+.hint-cell {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+  align-items: center;
+  padding: 2px;
+}
+
+.hint-input {
+  width: 40px;
+  height: 20px;
+  text-align: center;
+  font-size: 0.9rem;
+  border: 1px solid #aaa;
+  border-radius: 3px;
+}
+
+.hint-input.error {
+  border: 2px solid red;
+}
+
+/* 빈 코너 */
+.empty-corner {
+  background-color: transparent;
+  pointer-events: none;
+}
+
+/* 모바일 대응 */
+@media (max-width: 768px) {
+  .board-grid-fixed {
+    grid-template-columns: repeat(7, 40px);
+    grid-template-rows: repeat(7, 40px);
+    gap: 4px;
+  }
+
+  .cell,
+  .game-cell {
+    width: 40px;
+    height: 40px;
+    font-size: 1rem;
+  }
+
+  .hint-input {
+    width: 30px;
+    height: 18px;
+    font-size: 0.8rem;
+  }
+}
+
+/* 🌓 다크 모드 스타일 */
+@media (prefers-color-scheme: dark) {
+  .board-wrapper {
+    background-color: #121212;
+    color: #e0e0e0;
+  }
+
+  .game-cell {
+    background-color: #1e1e1e;
+    color: #ffffff;
+    border: 1px solid #666666;
+  }
+
+  .game-cell.recommend {
+    background-color: #2e7d32; /* 어두운 초록 추천 */
+    border-color: #81c784;
+  }
+
+  .game-cell.mid {
+    background-color: #806600; /* 어두운 노랑 중간 */
+    border-color: #ffd740;
+  }
+
+  .game-cell.voltorb {
+    background-color: #8e2424; /* 어두운 빨강 경고 */
+    border-color: #ef5350;
+  }
+
+  .hint-input {
+    background-color: #1e1e1e;
+    color: #ffffff;
+    border: 1px solid #666666;
+  }
+}
