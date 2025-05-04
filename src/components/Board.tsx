@@ -1,4 +1,10 @@
-import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+  MouseEvent,
+} from 'react';
 import './Board.css';
 import {
   analyzeBoard,
@@ -6,6 +12,7 @@ import {
   HintBoard,
   CellAnalysis,
 } from '../logic/recommendation';
+import { CellTooltip } from './CellTooltip';
 
 const BOARD_SIZE = 5;
 
@@ -19,6 +26,12 @@ export const Board: React.FC = () => {
     row: number;
     col: number;
   }>({ row: 0, col: 0 });
+  const [tooltip, setTooltip] = useState<{
+    x: number;
+    y: number;
+    expectedValue: number;
+    safeProb: number;
+  } | null>(null);
 
   const gameRefs = useRef<HTMLInputElement[][]>([]);
   const hintRowRefs = useRef<HTMLInputElement[][]>([]);
@@ -213,6 +226,19 @@ export const Board: React.FC = () => {
     setSelectedCell({ row, col });
   };
 
+  const handleMouseOver = (e: MouseEvent, row: number, col: number) => {
+    if (analysis) {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const cellAnalysis = analysis.find((a) => a.row === row && a.col === col);
+      setTooltip({
+        x: rect.left + rect.width + 10,
+        y: rect.top,
+        expectedValue: cellAnalysis!.expectedValue,
+        safeProb: cellAnalysis!.safeProb,
+      });
+    }
+  };
+
   return (
     <div className='board-wrapper'>
       <div className='board-grid-fixed'>
@@ -248,6 +274,8 @@ export const Board: React.FC = () => {
                   onChange={validateGameCell}
                   onKeyDown={(e) => handleKeyDown(e, row, col)}
                   onClick={() => handleOnClick(row, col)}
+                  onMouseEnter={(e) => handleMouseOver(e, row, col)}
+                  onMouseLeave={() => setTooltip(null)}
                 />
               );
             })}
@@ -321,6 +349,7 @@ export const Board: React.FC = () => {
           🔄 Refresh
         </button>
       </div>
+      {tooltip && <CellTooltip {...tooltip} />}
     </div>
   );
 };
