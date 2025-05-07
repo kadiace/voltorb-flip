@@ -39,12 +39,12 @@ export function calculateCellStatistics(
       c.expectedValue > 0,
   );
 
-  // Step 1: 100% safe 셀 우선 추천
+  // Step 1: Recommend 100% safe cellss
   const fullSafeCells = unopenedCells.filter(
     (c) => Math.abs(c.safeProb - 1) < 1e-3,
   );
 
-  // Step 2: 그 외 최고 safeProb와 최고 expectedValue 계산
+  // Step 2: Recommend cells with the highest expected value and safe probability
   let maxSafeProb = Math.max(
     ...unopenedCells.filter((c) => c.expectedValue >= 1).map((c) => c.safeProb),
   );
@@ -52,7 +52,7 @@ export function calculateCellStatistics(
 
   for (const cell of stats) {
     if (originalBoard[cell.row][cell.col] !== null) {
-      // 이미 입력된 셀
+      // Opened cell
       if (originalBoard[cell.row][cell.col] === 0) {
         cell.riskLabel = 'voltorb';
       } else {
@@ -64,7 +64,6 @@ export function calculateCellStatistics(
     if (cell.safeProb === 0 || cell.expectedValue < 1.0) {
       cell.riskLabel = 'voltorb';
     } else if (fullSafeCells.length > 0) {
-      // 100% safe cell이 있으면 그것만 recommend
       if (
         fullSafeCells.some(
           (safeCell) => safeCell.row === cell.row && safeCell.col === cell.col,

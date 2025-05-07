@@ -22,6 +22,7 @@ export const Board: React.FC = () => {
     {},
   );
   const [analysis, setAnalysis] = useState<CellAnalysis[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
   const [selectedCell, setSelectedCell] = useState<{
     row: number;
     col: number;
@@ -61,32 +62,46 @@ export const Board: React.FC = () => {
     };
   }, [selectedCell]);
 
-  // DEBUG: 초기 힌트 값 설정
+  useEffect(() => {
+    // Analyzing the board when game starts
+    if (gameStarted && isLoading) {
+      setTimeout(() => {
+        const boardState = getCurrentBoardState();
+        const hintState = getCurrentHint();
+        const result = analyzeBoard(boardState, hintState);
+        setAnalysis(result);
+        setIsLoading(false);
+        setSelectedCell({ row: 0, col: 0 });
+      }, 100);
+    }
+  }, [gameStarted, isLoading]);
+
+  // DEBUG: Set initial hints
   useLayoutEffect(() => {
     const rowHintValues: [string, string][] = [
-      ['2', '3'],
-      ['6', '0'],
-      ['6', '0'],
+      ['4', '2'],
+      ['5', '3'],
+      ['7', '0'],
+      ['3', '3'],
+      ['5', '2'],
+    ];
+
+    const colHintValues: [string, string][] = [
+      ['4', '2'],
+      ['6', '2'],
+      ['4', '3'],
       ['5', '2'],
       ['5', '1'],
     ];
 
-    const colHintValues: [string, string][] = [
-      ['5', '1'],
-      ['4', '2'],
-      ['5', '0'],
-      ['4', '2'],
-      ['6', '1'],
-    ];
-
-    // Row Hint 입력
+    // Row Hints
     hintRowRefs.current.forEach((pair, i) => {
       const [sumInput, voltInput] = pair;
       if (sumInput) sumInput.value = rowHintValues[i][0];
       if (voltInput) voltInput.value = rowHintValues[i][1];
     });
 
-    // Column Hint 입력
+    // Column Hints
     hintColRefs.current.forEach((pair, i) => {
       const [sumInput, voltInput] = pair;
       if (sumInput) sumInput.value = colHintValues[i][0];
@@ -117,9 +132,7 @@ export const Board: React.FC = () => {
 
   const updateAnalysisIfStarted = () => {
     if (!gameStarted) return;
-    const boardState = getCurrentBoardState();
-    const hintState = getCurrentHint();
-    setAnalysis(analyzeBoard(boardState, hintState));
+    setIsLoading(true);
   };
 
   const validateGameCell = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -139,18 +152,20 @@ export const Board: React.FC = () => {
   ) => {
     const val = e.target.value;
 
-    // 입력이 숫자가 아니면 제거
+    // Get rid of non-numeric characters
     if (!/^[0-9]*$/.test(val)) {
-      e.target.value = val.replace(/[^0-9]/g, ''); // 숫자 외 문자 제거
+      e.target.value = val.replace(/[^0-9]/g, '');
     }
 
     const num = Number(e.target.value);
+
+    // Reset to empty if out of range
     if (
       e.target.value !== '' &&
       ((type === 'sum' && (num < 0 || num > 15)) ||
         (type === 'volt' && (num < 0 || num > 5)))
     ) {
-      e.target.value = ''; // 범위 벗어나면 제거
+      e.target.value = '';
     }
   };
 
@@ -173,10 +188,7 @@ export const Board: React.FC = () => {
     setGameStarted(nextState);
 
     if (nextState) {
-      const boardState = getCurrentBoardState();
-      const hintState = getCurrentHint();
-      setAnalysis(analyzeBoard(boardState, hintState));
-      setSelectedCell({ row: 0, col: 0 });
+      setIsLoading(true);
     } else {
       setAnalysis([]);
       gameRefs.current.forEach((row) =>
@@ -250,10 +262,6 @@ export const Board: React.FC = () => {
               );
               const risk =
                 gameStarted && cellAnalysis ? cellAnalysis.riskLabel : '';
-              const tooltip =
-                gameStarted && cellAnalysis
-                  ? `안전 확률: ${(cellAnalysis.safeProb * 100).toFixed(1)}%\n기댓값: ${cellAnalysis.expectedValue.toFixed(2)}`
-                  : '';
               const isSelected =
                 selectedCell?.row === row && selectedCell?.col === col;
 
@@ -270,7 +278,6 @@ export const Board: React.FC = () => {
                   }}
                   disabled={!gameStarted}
                   style={{ gridColumn: col + 1, gridRow: row + 1 }}
-                  title={tooltip}
                   onChange={validateGameCell}
                   onKeyDown={(e) => handleKeyDown(e, row, col)}
                   onClick={() => handleOnClick(row, col)}
@@ -333,6 +340,7 @@ export const Board: React.FC = () => {
           className='cell empty-corner'
           style={{ gridColumn: BOARD_SIZE + 2, gridRow: BOARD_SIZE + 1 }}
         />
+        {isLoading && <div className='loader' title='Analyzing board...' />}
       </div>
 
       <div className='button-row'>

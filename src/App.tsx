@@ -7,12 +7,11 @@ const App = () => {
 
   useEffect(() => {
     const checkMobile = () => {
-      // 768px 기준으로 모바일 판단
       setIsMobile(window.innerWidth <= 768);
     };
 
-    checkMobile(); // 초기 체크
-    window.addEventListener('resize', checkMobile); // 리사이즈 반응
+    checkMobile(); // Initial check
+    window.addEventListener('resize', checkMobile);
 
     return () => window.removeEventListener('resize', checkMobile);
   }, []);

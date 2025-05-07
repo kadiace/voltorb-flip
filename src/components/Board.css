@@ -1,4 +1,4 @@
-/* 전체 wrapper */
+/* Whole wrapper */
 .board-wrapper {
   display: flex;
   flex-direction: column;
@@ -7,7 +7,7 @@
   padding: 1rem;
 }
 
-/* 버튼 영역 */
+/* Button area */
 .button-row {
   display: flex;
   gap: 1rem;
@@ -28,8 +28,9 @@
   background-color: #0056b3;
 }
 
-/* 고정형 그리드 레이아웃 */
+/* Fixed grid layout */
 .board-grid-fixed {
+  position: relative;
   display: grid;
   grid-template-columns: repeat(7, 50px);
   grid-template-rows: repeat(7, 50px);
@@ -44,7 +45,7 @@
   align-items: center;
 }
 
-/* 게임 셀 */
+/* Game cell */
 .game-cell {
   width: 100%;
   height: 100%;
@@ -60,23 +61,23 @@
   color: #000000;
 }
 
-/* 위험도 색상 (기본 Light Theme) */
+/* Game cell type */
 .game-cell.recommend {
-  background-color: #d4edda; /* 연한 초록 */
+  background-color: #d4edda;
   border-color: #28a745;
 }
 
 .game-cell.mid {
-  background-color: #fff3cd; /* 연한 노랑 */
+  background-color: #fff3cd;
   border-color: #ffc107;
 }
 
 .game-cell.voltorb {
-  background-color: #f8d7da; /* 연한 빨강 */
+  background-color: #f8d7da;
   border-color: #dc3545;
 }
 
-/* 힌트 셀 */
+/* Hint cell */
 .hint-cell {
   display: flex;
   flex-direction: column;
@@ -98,13 +99,13 @@
   border: 2px solid red;
 }
 
-/* 빈 코너 */
+/* Empty corner for layout */
 .empty-corner {
   background-color: transparent;
   pointer-events: none;
 }
 
-/* 모바일 대응 */
+/* For mobile */
 @media (max-width: 768px) {
   .board-grid-fixed {
     grid-template-columns: repeat(7, 40px);
@@ -141,7 +142,7 @@
     color 0.3s;
   display: flex;
   align-items: center;
-  gap: 0.5rem; /* 아이콘과 텍스트 사이 여백 */
+  gap: 0.5rem; /* Margin between icon and text */
 }
 
 .button-icon {
@@ -153,7 +154,31 @@
   border-color: #004494;
 }
 
-/* 🌓 다크 모드 스타일 */
+.loader {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1000;
+
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #007bff;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+/* 🌓 Dark mode */
 @media (prefers-color-scheme: dark) {
   .board-wrapper {
     background-color: #121212;
@@ -167,17 +192,17 @@
   }
 
   .game-cell.recommend {
-    background-color: #2e7d32; /* 어두운 초록 추천 */
+    background-color: #2e7d32;
     border-color: #81c784;
   }
 
   .game-cell.mid {
-    background-color: #806600; /* 어두운 노랑 중간 */
+    background-color: #806600;
     border-color: #ffd740;
   }
 
   .game-cell.voltorb {
-    background-color: #8e2424; /* 어두운 빨강 경고 */
+    background-color: #8e2424;
     border-color: #ef5350;
   }
 

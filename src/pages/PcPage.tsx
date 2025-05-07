@@ -24,7 +24,6 @@ export const PcPage: React.FC = () => {
         overflow: 'hidden',
       }}
     >
-      {/* Board 영역 */}
       <div
         style={{
           flex: 1,
@@ -41,7 +40,6 @@ export const PcPage: React.FC = () => {
         </div>
       </div>
 
-      {/* 배너 영역 */}
       <div
         style={{
           flex: 1,
