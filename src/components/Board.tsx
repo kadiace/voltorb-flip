@@ -1,8 +1,10 @@
 import React, {
+  useCallback,
   useState,
   useRef,
   useEffect,
   useLayoutEffect,
+  DragEvent,
   MouseEvent,
 } from 'react';
 import './Board.css';
@@ -15,6 +17,20 @@ import {
 import { CellTooltip } from './CellTooltip';
 
 const BOARD_SIZE = 5;
+const DEBUG_ROW_HINT_VALUES: [string, string][] = [
+  ['4', '2'],
+  ['5', '3'],
+  ['7', '0'],
+  ['3', '3'],
+  ['5', '2'],
+];
+const DEBUG_COL_HINT_VALUES: [string, string][] = [
+  ['4', '2'],
+  ['6', '2'],
+  ['4', '3'],
+  ['5', '2'],
+  ['5', '1'],
+];
 
 export const Board: React.FC = () => {
   const [gameStarted, setGameStarted] = useState(false);
@@ -33,18 +49,45 @@ export const Board: React.FC = () => {
     expectedValue: number;
     safeProb: number;
   } | null>(null);
+  const [uploadedImage, setUploadedImage] = useState<string | null>(null);
+  const [isDragOverPreview, setIsDragOverPreview] = useState(false);
 
-  const gameRefs = useRef<HTMLInputElement[][]>([]);
-  const hintRowRefs = useRef<HTMLInputElement[][]>([]);
-  const hintColRefs = useRef<HTMLInputElement[][]>([]);
+  const gameRefs = useRef<HTMLInputElement[][]>(
+    Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE)),
+  );
+  const hintRowRefs = useRef<HTMLInputElement[][]>(
+    Array.from({ length: BOARD_SIZE }, () => Array(2)),
+  );
+  const hintColRefs = useRef<HTMLInputElement[][]>(
+    Array.from({ length: BOARD_SIZE }, () => Array(2)),
+  );
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const uploadedImageUrlRef = useRef<string | null>(null);
 
-  useEffect(() => {
-    gameRefs.current = Array.from({ length: BOARD_SIZE }, () =>
-      Array(BOARD_SIZE),
-    );
-    hintRowRefs.current = Array.from({ length: BOARD_SIZE }, () => Array(2));
-    hintColRefs.current = Array.from({ length: BOARD_SIZE }, () => Array(2));
+  const setPreviewImageFromBlob = useCallback((file: Blob) => {
+    const nextImageUrl = URL.createObjectURL(file);
+
+    if (uploadedImageUrlRef.current) {
+      URL.revokeObjectURL(uploadedImageUrlRef.current);
+    }
+
+    uploadedImageUrlRef.current = nextImageUrl;
+    setUploadedImage(nextImageUrl);
   }, []);
+
+  const applyDebugInitialHints = () => {
+    hintRowRefs.current.forEach((pair, i) => {
+      const [sumInput, voltInput] = pair;
+      if (sumInput) sumInput.value = DEBUG_ROW_HINT_VALUES[i][0];
+      if (voltInput) voltInput.value = DEBUG_ROW_HINT_VALUES[i][1];
+    });
+
+    hintColRefs.current.forEach((pair, i) => {
+      const [sumInput, voltInput] = pair;
+      if (sumInput) sumInput.value = DEBUG_COL_HINT_VALUES[i][0];
+      if (voltInput) voltInput.value = DEBUG_COL_HINT_VALUES[i][1];
+    });
+  };
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -63,6 +106,36 @@ export const Board: React.FC = () => {
   }, [selectedCell]);
 
   useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.startsWith('image/')) {
+          const imageBlob = items[i].getAsFile();
+          if (imageBlob) {
+            setPreviewImageFromBlob(imageBlob);
+            break;
+          }
+        }
+      }
+    };
+
+    document.addEventListener('paste', handlePaste);
+    return () => {
+      document.removeEventListener('paste', handlePaste);
+    };
+  }, [setPreviewImageFromBlob]);
+
+  useEffect(() => {
+    return () => {
+      if (uploadedImageUrlRef.current) {
+        URL.revokeObjectURL(uploadedImageUrlRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     // Analyzing the board when game starts
     if (gameStarted && isLoading) {
       setTimeout(() => {
@@ -76,37 +149,8 @@ export const Board: React.FC = () => {
     }
   }, [gameStarted, isLoading]);
 
-  // DEBUG: Set initial hints
   useLayoutEffect(() => {
-    const rowHintValues: [string, string][] = [
-      ['4', '2'],
-      ['5', '3'],
-      ['7', '0'],
-      ['3', '3'],
-      ['5', '2'],
-    ];
-
-    const colHintValues: [string, string][] = [
-      ['4', '2'],
-      ['6', '2'],
-      ['4', '3'],
-      ['5', '2'],
-      ['5', '1'],
-    ];
-
-    // Row Hints
-    hintRowRefs.current.forEach((pair, i) => {
-      const [sumInput, voltInput] = pair;
-      if (sumInput) sumInput.value = rowHintValues[i][0];
-      if (voltInput) voltInput.value = rowHintValues[i][1];
-    });
-
-    // Column Hints
-    hintColRefs.current.forEach((pair, i) => {
-      const [sumInput, voltInput] = pair;
-      if (sumInput) sumInput.value = colHintValues[i][0];
-      if (voltInput) voltInput.value = colHintValues[i][1];
-    });
+    applyDebugInitialHints();
   }, []);
 
   const getCurrentBoardState = (): BoardState => {
@@ -211,6 +255,7 @@ export const Board: React.FC = () => {
     hintColRefs.current.forEach((pair) =>
       pair.forEach((input) => input && (input.value = '')),
     );
+    applyDebugInitialHints();
   };
 
   const handleKeyDown = (
@@ -251,111 +296,218 @@ export const Board: React.FC = () => {
     }
   };
 
+  const handleImageUploadChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setPreviewImageFromBlob(file);
+    e.target.value = '';
+  };
+
+  const clearUploadedImage = () => {
+    if (uploadedImageUrlRef.current) {
+      URL.revokeObjectURL(uploadedImageUrlRef.current);
+      uploadedImageUrlRef.current = null;
+    }
+    setUploadedImage(null);
+  };
+
+  const handlePreviewDragOver = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragOverPreview(true);
+  };
+
+  const handlePreviewDragLeave = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragOverPreview(false);
+  };
+
+  const handlePreviewDrop = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragOverPreview(false);
+
+    const imageFile = Array.from(e.dataTransfer.files).find((file) =>
+      file.type.startsWith('image/'),
+    );
+
+    if (imageFile) {
+      setPreviewImageFromBlob(imageFile);
+    }
+  };
+
   return (
     <div className='board-wrapper'>
-      <div className='board-grid-fixed'>
-        {[...Array(BOARD_SIZE)].map((_, row) => (
-          <React.Fragment key={`row-${row}`}>
-            {[...Array(BOARD_SIZE)].map((_, col) => {
-              const cellAnalysis = analysis.find(
-                (a) => a.row === row && a.col === col,
-              );
-              const risk =
-                gameStarted && cellAnalysis ? cellAnalysis.riskLabel : '';
-              const isSelected =
-                selectedCell?.row === row && selectedCell?.col === col;
+      <div className='board-title-wrap'>
+        <h1 className='board-title'>VOLTORB FLIP</h1>
+        <p className='board-subtitle'>SOLVER</p>
+      </div>
 
-              return (
-                <input
-                  key={`cell-${row}-${col}`}
-                  type='text'
-                  inputMode='numeric'
-                  className={`cell game-cell ${risk} ${isSelected ? 'selected' : ''}`}
-                  maxLength={1}
-                  ref={(el) => {
-                    if (!gameRefs.current[row]) gameRefs.current[row] = [];
-                    gameRefs.current[row][col] = el!;
-                  }}
-                  disabled={!gameStarted}
-                  style={{ gridColumn: col + 1, gridRow: row + 1 }}
-                  onChange={validateGameCell}
-                  onKeyDown={(e) => handleKeyDown(e, row, col)}
-                  onClick={() => handleOnClick(row, col)}
-                  onMouseEnter={(e) => handleMouseOver(e, row, col)}
-                  onMouseLeave={() => setTooltip(null)}
-                />
-              );
-            })}
-            {[0, 1].map((i) => {
-              const errorKey = `row-${row}-${i}`;
-              const type = i === 0 ? 'sum' : 'volt';
-              return (
-                <input
-                  key={`hint-row-${row}-${i}`}
-                  className={`cell hint-input ${hintErrorMap[errorKey] ? 'error' : ''}`}
-                  placeholder={i === 0 ? 'S' : 'V'}
-                  ref={(el) => {
-                    if (!hintRowRefs.current[row])
-                      hintRowRefs.current[row] = [];
-                    hintRowRefs.current[row][i] = el!;
-                  }}
-                  disabled={gameStarted}
-                  style={{ gridColumn: BOARD_SIZE + i + 1, gridRow: row + 1 }}
-                  onChange={(e) => validateHintCell(e, type)}
-                />
-              );
-            })}
-          </React.Fragment>
-        ))}
+      <input
+        ref={uploadInputRef}
+        type='file'
+        accept='image/*'
+        className='upload-input-hidden'
+        onChange={handleImageUploadChange}
+      />
 
-        {[...Array(BOARD_SIZE)].map((_, col) => (
-          <React.Fragment key={`col-hint-${col}`}>
-            {[0, 1].map((i) => {
-              const errorKey = `col-${col}-${i}`;
-              const type = i === 0 ? 'sum' : 'volt';
-              return (
-                <input
-                  key={`hint-col-${col}-${i}`}
-                  className={`cell hint-input ${hintErrorMap[errorKey] ? 'error' : ''}`}
-                  placeholder={i === 0 ? 'S' : 'V'}
-                  ref={(el) => {
-                    if (!hintColRefs.current[col])
-                      hintColRefs.current[col] = [];
-                    hintColRefs.current[col][i] = el!;
-                  }}
-                  disabled={gameStarted}
-                  style={{ gridColumn: col + 1, gridRow: BOARD_SIZE + i + 1 }}
-                  onChange={(e) => validateHintCell(e, type)}
-                />
-              );
-            })}
-          </React.Fragment>
-        ))}
-
+      <div className='image-preview-panel pixel-border'>
         <div
-          className='cell empty-corner'
-          style={{ gridColumn: BOARD_SIZE + 1, gridRow: BOARD_SIZE + 1 }}
-        />
-        <div
-          className='cell empty-corner'
-          style={{ gridColumn: BOARD_SIZE + 2, gridRow: BOARD_SIZE + 1 }}
-        />
-        {isLoading && <div className='loader' title='Analyzing board...' />}
+          className={`image-preview-frame ${isDragOverPreview ? 'drag-over' : ''}`}
+          onDragOver={handlePreviewDragOver}
+          onDragEnter={handlePreviewDragOver}
+          onDragLeave={handlePreviewDragLeave}
+          onDrop={handlePreviewDrop}
+          onClick={() => uploadInputRef.current?.click()}
+          role='button'
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              uploadInputRef.current?.click();
+            }
+          }}
+          aria-label='Upload or drop image preview'
+        >
+          {uploadedImage && (
+            <button
+              type='button'
+              className='image-close-button pixel-button'
+              onClick={(e) => {
+                e.stopPropagation();
+                clearUploadedImage();
+              }}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+              }}
+              aria-label='Remove uploaded image'
+              title='Remove image'
+            >
+              X
+            </button>
+          )}
+
+          {uploadedImage && (
+            <img
+              src={uploadedImage}
+              alt='Uploaded board preview'
+              className='image-preview'
+            />
+          )}
+
+          {!uploadedImage && (
+            <div className='image-panel-controls'>
+              <p className='image-paste-help'>
+                <strong className='image-cta'>CLICK TO UPLOAD</strong>
+                <span className='image-paste-note'>or drop image here</span>
+                <span className='image-paste-note'>
+                  or paste clipboard image with Ctrl+V / Cmd+V
+                </span>
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className='board-panel pixel-border'>
+        <div className='board-grid-fixed'>
+          {[...Array(BOARD_SIZE)].map((_, row) => (
+            <React.Fragment key={`row-${row}`}>
+              {[...Array(BOARD_SIZE)].map((_, col) => {
+                const cellAnalysis = analysis.find(
+                  (a) => a.row === row && a.col === col,
+                );
+                const risk =
+                  gameStarted && cellAnalysis ? cellAnalysis.riskLabel : '';
+                const isSelected =
+                  selectedCell?.row === row && selectedCell?.col === col;
+
+                return (
+                  <input
+                    key={`cell-${row}-${col}`}
+                    type='text'
+                    inputMode='numeric'
+                    className={`cell game-cell ${risk} ${isSelected ? 'selected' : ''}`}
+                    maxLength={1}
+                    ref={(el) => {
+                      if (!gameRefs.current[row]) gameRefs.current[row] = [];
+                      gameRefs.current[row][col] = el!;
+                    }}
+                    disabled={!gameStarted}
+                    style={{ gridColumn: col + 1, gridRow: row + 1 }}
+                    onChange={validateGameCell}
+                    onKeyDown={(e) => handleKeyDown(e, row, col)}
+                    onClick={() => handleOnClick(row, col)}
+                    onMouseEnter={(e) => handleMouseOver(e, row, col)}
+                    onMouseLeave={() => setTooltip(null)}
+                  />
+                );
+              })}
+              {[0, 1].map((i) => {
+                const errorKey = `row-${row}-${i}`;
+                const type = i === 0 ? 'sum' : 'volt';
+                return (
+                  <input
+                    key={`hint-row-${row}-${i}`}
+                    className={`cell hint-input ${hintErrorMap[errorKey] ? 'error' : ''}`}
+                    placeholder={i === 0 ? 'S' : 'V'}
+                    ref={(el) => {
+                      if (!hintRowRefs.current[row])
+                        hintRowRefs.current[row] = [];
+                      hintRowRefs.current[row][i] = el!;
+                    }}
+                    disabled={gameStarted}
+                    style={{ gridColumn: BOARD_SIZE + i + 1, gridRow: row + 1 }}
+                    onChange={(e) => validateHintCell(e, type)}
+                  />
+                );
+              })}
+            </React.Fragment>
+          ))}
+
+          {[...Array(BOARD_SIZE)].map((_, col) => (
+            <React.Fragment key={`col-hint-${col}`}>
+              {[0, 1].map((i) => {
+                const errorKey = `col-${col}-${i}`;
+                const type = i === 0 ? 'sum' : 'volt';
+                return (
+                  <input
+                    key={`hint-col-${col}-${i}`}
+                    className={`cell hint-input ${hintErrorMap[errorKey] ? 'error' : ''}`}
+                    placeholder={i === 0 ? 'S' : 'V'}
+                    ref={(el) => {
+                      if (!hintColRefs.current[col])
+                        hintColRefs.current[col] = [];
+                      hintColRefs.current[col][i] = el!;
+                    }}
+                    disabled={gameStarted}
+                    style={{ gridColumn: col + 1, gridRow: BOARD_SIZE + i + 1 }}
+                    onChange={(e) => validateHintCell(e, type)}
+                  />
+                );
+              })}
+            </React.Fragment>
+          ))}
+
+          {isLoading && <div className='loader' title='Analyzing board...' />}
+        </div>
       </div>
 
       <div className='button-row'>
         <button
           onClick={handleStartClick}
-          className='control-button start-button'
+          className='control-button start-button pixel-button'
         >
           {gameStarted ? '⏹ Stop' : '▶ Start'}
         </button>
         <button
           onClick={handleRefreshClick}
-          className='control-button refresh-button'
+          className='control-button refresh-button pixel-button'
         >
           🔄 Refresh
         </button>
+      </div>
+      <div className='board-help'>
+        Top number: row/column sum | Bottom number: Voltorb count
       </div>
       {tooltip && <CellTooltip {...tooltip} />}
     </div>

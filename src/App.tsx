@@ -1,22 +1,28 @@
-import { useEffect, useState } from 'react';
-import { MobilePage } from './pages/MobilePage';
-import { PcPage } from './pages/PcPage';
+import { Board } from './components/Board';
+import './App.css';
 
 const App = () => {
-  const [isMobile, setIsMobile] = useState(false);
+  return (
+    <div className='app-shell'>
+      <aside className='ad-rail ad-rail-left'>
+        <div className='ad-card'>
+          <p>AD SPACE</p>
+          <span>160 x 600</span>
+        </div>
+      </aside>
 
-  useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth <= 768);
-    };
+      <main className='app-main'>
+        <Board />
+      </main>
 
-    checkMobile(); // Initial check
-    window.addEventListener('resize', checkMobile);
-
-    return () => window.removeEventListener('resize', checkMobile);
-  }, []);
-
-  return isMobile ? <MobilePage /> : <PcPage />;
+      <aside className='ad-rail ad-rail-right'>
+        <div className='ad-card'>
+          <p>AD SPACE</p>
+          <span>160 x 600</span>
+        </div>
+      </aside>
+    </div>
+  );
 };
 
 export default App;

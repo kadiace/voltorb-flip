@@ -1,68 +1,82 @@
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
 :root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
-
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  --bg-top: #1c2532;
+  --bg-mid: #10161f;
+  --bg-bottom: #0a0d14;
+  --panel: #1b2331;
+  --panel-border: #0f121b;
+  --tile: #2b8f4f;
+  --tile-border: #1d5f35;
+  --tile-text: #dcf5df;
+  --hint-bg: #222d3d;
+  --hint-border: #141b26;
+  --hint-input: #151d2a;
+  --hint-input-border: #0f1521;
+  --safe: #2f9f5b;
+  --mid: #be9b2f;
+  --danger: #bf404f;
+  --accent-blue: #2f7ccf;
+  --accent-red: #bf404f;
+  --ink: #ecf3ff;
+  --muted: #aeb8cc;
 }
 
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
+* {
+  box-sizing: border-box;
 }
-a:hover {
-  color: #535bf2;
+
+html,
+body,
+#root {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100%;
 }
 
 body {
-  margin: 0;
-  display: flex;
-  place-items: center;
-  min-width: 320px;
-  min-height: 100vh;
+  font-family: 'Press Start 2P', monospace;
+  color: var(--ink);
+  image-rendering: pixelated;
+  -webkit-font-smoothing: none;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
+.pixel-text {
+  font-family: 'Press Start 2P', monospace;
+  image-rendering: pixelated;
+  -webkit-font-smoothing: none;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  background-color: #1a1a1a;
-  cursor: pointer;
-  transition: border-color 0.25s;
-}
-button:hover {
-  border-color: #646cff;
-}
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
+.pixel-border {
+  image-rendering: pixelated;
+  box-shadow:
+    inset -4px -4px 0 rgba(0, 0, 0, 0.45),
+    inset 4px 4px 0 rgba(255, 255, 255, 0.1);
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
-  }
-  a:hover {
-    color: #747bff;
-  }
-  button {
-    background-color: #f9f9f9;
-  }
+.pixel-button {
+  font-family: 'Press Start 2P', monospace;
+  image-rendering: pixelated;
+  -webkit-font-smoothing: none;
+  -moz-osx-font-smoothing: grayscale;
+  transition: all 0.1s;
+  box-shadow:
+    inset -4px -4px 0 rgba(0, 0, 0, 0.5),
+    inset 4px 4px 0 rgba(255, 255, 255, 0.18);
+}
+
+.pixel-button:hover {
+  transform: translate(2px, 2px);
+  box-shadow:
+    inset -2px -2px 0 rgba(0, 0, 0, 0.5),
+    inset 2px 2px 0 rgba(255, 255, 255, 0.16);
+}
+
+.pixel-button:active {
+  transform: translate(3px, 3px);
+  box-shadow:
+    inset -1px -1px 0 rgba(0, 0, 0, 0.5),
+    inset 1px 1px 0 rgba(255, 255, 255, 0.1);
 }
