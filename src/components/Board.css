@@ -152,6 +152,17 @@
   background: linear-gradient(180deg, #263248, #1a2232);
 }
 
+.convert-row {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+.convert-button {
+  background: linear-gradient(180deg, #d18d35, #9e6423);
+  min-width: 260px;
+}
+
 .board-grid-fixed {
   position: relative;
   display: grid;
@@ -395,6 +406,10 @@
   .control-button {
     min-width: 150px;
     font-size: 0.54rem;
+  }
+
+  .convert-button {
+    min-width: 210px;
   }
 
   .board-help {

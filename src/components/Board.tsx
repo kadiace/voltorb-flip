@@ -335,6 +335,12 @@ export const Board: React.FC = () => {
     }
   };
 
+  const handleConvertImageClick = () => {
+    console.log('Convert image to grid requested', {
+      hasUploadedImage: Boolean(uploadedImage),
+    });
+  };
+
   return (
     <div className='board-wrapper'>
       <div className='board-title-wrap'>
@@ -406,6 +412,16 @@ export const Board: React.FC = () => {
             </div>
           )}
         </div>
+      </div>
+
+      <div className='convert-row'>
+        <button
+          type='button'
+          className='control-button convert-button pixel-button'
+          onClick={handleConvertImageClick}
+        >
+          Convert Image To Grid
+        </button>
       </div>
 
       <div className='board-panel pixel-border'>
