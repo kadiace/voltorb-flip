@@ -163,6 +163,20 @@
   min-width: 260px;
 }
 
+.convert-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  filter: grayscale(0.3);
+}
+
+.convert-status {
+  min-height: 1.1rem;
+  font-size: 0.52rem;
+  color: #ffdca1;
+  letter-spacing: 0.03em;
+  text-align: center;
+}
+
 .board-grid-fixed {
   position: relative;
   display: grid;

@@ -14,6 +14,7 @@ import {
   HintBoard,
   CellAnalysis,
 } from '../logic/recommendation';
+import { extractHintsFromImageBitmap } from '../logic/extractHintsFromImage';
 import { CellTooltip } from './CellTooltip';
 
 const BOARD_SIZE = 5;
@@ -51,6 +52,7 @@ export const Board: React.FC = () => {
   } | null>(null);
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
   const [isDragOverPreview, setIsDragOverPreview] = useState(false);
+  const [convertStatus, setConvertStatus] = useState<string>('');
 
   const gameRefs = useRef<HTMLInputElement[][]>(
     Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE)),
@@ -63,6 +65,7 @@ export const Board: React.FC = () => {
   );
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const uploadedImageUrlRef = useRef<string | null>(null);
+  const uploadedImageBlobRef = useRef<Blob | null>(null);
 
   const setPreviewImageFromBlob = useCallback((file: Blob) => {
     const nextImageUrl = URL.createObjectURL(file);
@@ -72,6 +75,7 @@ export const Board: React.FC = () => {
     }
 
     uploadedImageUrlRef.current = nextImageUrl;
+    uploadedImageBlobRef.current = file;
     setUploadedImage(nextImageUrl);
   }, []);
 
@@ -301,6 +305,7 @@ export const Board: React.FC = () => {
     if (!file) return;
 
     setPreviewImageFromBlob(file);
+    setConvertStatus('');
     e.target.value = '';
   };
 
@@ -309,7 +314,9 @@ export const Board: React.FC = () => {
       URL.revokeObjectURL(uploadedImageUrlRef.current);
       uploadedImageUrlRef.current = null;
     }
+    uploadedImageBlobRef.current = null;
     setUploadedImage(null);
+    setConvertStatus('');
   };
 
   const handlePreviewDragOver = (e: DragEvent<HTMLDivElement>) => {
@@ -332,13 +339,60 @@ export const Board: React.FC = () => {
 
     if (imageFile) {
       setPreviewImageFromBlob(imageFile);
+      setConvertStatus('');
     }
   };
 
-  const handleConvertImageClick = () => {
-    console.log('Convert image to grid requested', {
-      hasUploadedImage: Boolean(uploadedImage),
+  const applyExtractedHints = (
+    rowHintValues: [string, string][],
+    colHintValues: [string, string][],
+  ) => {
+    hintRowRefs.current.forEach((pair, rowIdx) => {
+      const [sumInput, voltInput] = pair;
+      if (sumInput) sumInput.value = rowHintValues[rowIdx][0];
+      if (voltInput) voltInput.value = rowHintValues[rowIdx][1];
     });
+
+    hintColRefs.current.forEach((pair, colIdx) => {
+      const [sumInput, voltInput] = pair;
+      if (sumInput) sumInput.value = colHintValues[colIdx][0];
+      if (voltInput) voltInput.value = colHintValues[colIdx][1];
+    });
+
+    setHintErrorMap({});
+  };
+
+  const handleConvertImageClick = async () => {
+    if (!uploadedImage) {
+      setConvertStatus('Upload an HGSS board screenshot first.');
+      return;
+    }
+
+    if (!uploadedImageBlobRef.current) {
+      setConvertStatus(
+        'Missing image data. Please upload the screenshot again.',
+      );
+      return;
+    }
+
+    try {
+      setConvertStatus('Converting image...');
+      const extracted = await extractHintsFromImageBitmap(
+        uploadedImageBlobRef.current,
+      );
+      applyExtractedHints(extracted.rowHintValues, extracted.colHintValues);
+      setConvertStatus('Hints extracted from image.');
+
+      if (gameStarted) {
+        setIsLoading(true);
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Failed to convert screenshot into hints.';
+      setConvertStatus(message);
+    }
   };
 
   return (
@@ -419,10 +473,13 @@ export const Board: React.FC = () => {
           type='button'
           className='control-button convert-button pixel-button'
           onClick={handleConvertImageClick}
+          disabled={!uploadedImage}
         >
           Convert Image To Grid
         </button>
       </div>
+
+      {convertStatus && <div className='convert-status'>{convertStatus}</div>}
 
       <div className='board-panel pixel-border'>
         <div className='board-grid-fixed'>
