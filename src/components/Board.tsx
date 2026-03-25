@@ -410,62 +410,58 @@ export const Board: React.FC = () => {
         onChange={handleImageUploadChange}
       />
 
-      <div className='image-preview-panel pixel-border'>
-        <div
-          className={`image-preview-frame ${isDragOverPreview ? 'drag-over' : ''}`}
-          onDragOver={handlePreviewDragOver}
-          onDragEnter={handlePreviewDragOver}
-          onDragLeave={handlePreviewDragLeave}
-          onDrop={handlePreviewDrop}
-          onClick={() => uploadInputRef.current?.click()}
-          role='button'
-          tabIndex={0}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              uploadInputRef.current?.click();
-            }
-          }}
-          aria-label='Upload or drop image preview'
-        >
-          {uploadedImage && (
-            <button
-              type='button'
-              className='image-close-button pixel-button'
-              onClick={(e) => {
-                e.stopPropagation();
-                clearUploadedImage();
-              }}
-              onKeyDown={(e) => {
-                e.stopPropagation();
-              }}
-              aria-label='Remove uploaded image'
-              title='Remove image'
-            >
-              X
-            </button>
-          )}
+      <div className='image-preview-shell'>
+        <div className='image-preview-panel pixel-border'>
+          <div
+            className={`image-preview-frame ${isDragOverPreview ? 'drag-over' : ''}`}
+            onDragOver={handlePreviewDragOver}
+            onDragEnter={handlePreviewDragOver}
+            onDragLeave={handlePreviewDragLeave}
+            onDrop={handlePreviewDrop}
+            onClick={() => uploadInputRef.current?.click()}
+            role='button'
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                uploadInputRef.current?.click();
+              }
+            }}
+            aria-label='Upload or drop image preview'
+          >
+            {uploadedImage && (
+              <img
+                src={uploadedImage}
+                alt='Uploaded board preview'
+                className='image-preview'
+              />
+            )}
 
-          {uploadedImage && (
-            <img
-              src={uploadedImage}
-              alt='Uploaded board preview'
-              className='image-preview'
-            />
-          )}
-
-          {!uploadedImage && (
-            <div className='image-panel-controls'>
-              <p className='image-paste-help'>
-                <strong className='image-cta'>CLICK TO UPLOAD</strong>
-                <span className='image-paste-note'>or drop image here</span>
-                <span className='image-paste-note'>
-                  or paste clipboard image with Ctrl+V / Cmd+V
-                </span>
-              </p>
-            </div>
-          )}
+            {!uploadedImage && (
+              <div className='image-panel-controls'>
+                <p className='image-paste-help'>
+                  <strong className='image-cta'>CLICK TO UPLOAD</strong>
+                  <span className='image-paste-note'>or drop image here</span>
+                  <span className='image-paste-note'>
+                    or paste clipboard image with Ctrl+V / Cmd+V
+                  </span>
+                </p>
+              </div>
+            )}
+          </div>
         </div>
+
+        {uploadedImage && (
+          <button
+            type='button'
+            className='image-close-button pixel-button'
+            onClick={clearUploadedImage}
+            aria-label='Remove uploaded image'
+            title='Remove image'
+          >
+            X
+          </button>
+        )}
       </div>
 
       <div className='convert-row'>

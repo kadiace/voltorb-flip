@@ -23,6 +23,11 @@ interface GridGeometry {
   yLines: number[];
 }
 
+interface Point {
+  x: number;
+  y: number;
+}
+
 interface GrayRegion {
   width: number;
   height: number;
@@ -35,18 +40,21 @@ interface BinaryRegion {
   pixels: Uint8Array;
 }
 
-interface Component {
-  x1: number;
-  y1: number;
-  x2: number;
-  y2: number;
-  area: number;
-}
-
 interface DigitReadResult {
   digit: number;
   score: number;
   inkRatio: number;
+}
+
+interface DigitCandidate {
+  digit: number;
+  score: number;
+}
+
+interface HintPairCandidate {
+  sum: number;
+  voltorb: number;
+  score: number;
 }
 
 const DEFAULT_ROW_HINT_RECTS: Rect[] = [0, 1, 2, 3, 4].map((row) => ({
@@ -63,21 +71,44 @@ const DEFAULT_COL_HINT_RECTS: Rect[] = [0, 1, 2, 3, 4].map((col) => ({
   height: 0.105,
 }));
 
-const DIGIT_SEGMENTS: Record<
-  number,
-  [number, number, number, number, number, number, number]
-> = {
-  0: [1, 1, 1, 0, 1, 1, 1],
-  1: [0, 0, 1, 0, 0, 1, 0],
-  2: [1, 0, 1, 1, 1, 0, 1],
-  3: [1, 0, 1, 1, 0, 1, 1],
-  4: [0, 1, 1, 1, 0, 1, 0],
-  5: [1, 1, 0, 1, 0, 1, 1],
-  6: [1, 1, 0, 1, 1, 1, 1],
-  7: [1, 0, 1, 0, 0, 1, 0],
-  8: [1, 1, 1, 1, 1, 1, 1],
-  9: [1, 1, 1, 1, 0, 1, 1],
+const DIGIT_BITMAP_5X7: Record<number, string[]> = {
+  0: ['01110', '10001', '10011', '10101', '11001', '10001', '01110'],
+  1: ['00100', '01100', '00100', '00100', '00100', '00100', '01110'],
+  2: ['01110', '10001', '00001', '00010', '00100', '01000', '11111'],
+  3: ['11110', '00001', '00001', '01110', '00001', '00001', '11110'],
+  4: ['00010', '00110', '01010', '10010', '11111', '00010', '00010'],
+  5: ['11111', '10000', '10000', '11110', '00001', '00001', '11110'],
+  6: ['01110', '10000', '10000', '11110', '10001', '10001', '01110'],
+  7: ['11111', '00001', '00010', '00100', '01000', '01000', '01000'],
+  8: ['01110', '10001', '10001', '01110', '10001', '10001', '01110'],
+  9: ['01110', '10001', '10001', '01111', '00001', '00001', '01110'],
 };
+
+const DIGIT_TEMPLATE_WIDTH = 18;
+const DIGIT_TEMPLATE_HEIGHT = 26;
+
+const DIGIT_TEMPLATES: Record<number, BinaryRegion> = Object.fromEntries(
+  Object.entries(DIGIT_BITMAP_5X7).map(([digitText, rows]) => {
+    const sourceHeight = rows.length;
+    const sourceWidth = rows[0].length;
+    const sourcePixels = new Uint8Array(sourceWidth * sourceHeight);
+
+    for (let y = 0; y < sourceHeight; y++) {
+      const row = rows[y];
+      for (let x = 0; x < sourceWidth; x++) {
+        sourcePixels[y * sourceWidth + x] = row[x] === '1' ? 1 : 0;
+      }
+    }
+
+    const template = resizeBinaryNearest(
+      { width: sourceWidth, height: sourceHeight, pixels: sourcePixels },
+      DIGIT_TEMPLATE_WIDTH,
+      DIGIT_TEMPLATE_HEIGHT,
+    );
+
+    return [Number(digitText), template];
+  }),
+) as Record<number, BinaryRegion>;
 
 function clampRect(image: ImageDataLike, rect: Rect): Rect {
   const x = Math.max(0, Math.floor(rect.x * image.width));
@@ -316,6 +347,175 @@ function buildHintRectsFromGrid(
   return { rowHintRects, colHintRects };
 }
 
+interface ComponentWithCenter extends ComponentBox {
+  cx: number;
+  cy: number;
+}
+
+function orangeMask(image: ImageDataLike): BinaryRegion {
+  const pixels = new Uint8Array(image.width * image.height);
+  for (let y = 0; y < image.height; y++) {
+    for (let x = 0; x < image.width; x++) {
+      const [r, g, b] = getRgb(image, x, y);
+      const isOrange =
+        r >= 150 &&
+        g >= 70 &&
+        g <= 220 &&
+        b <= 150 &&
+        r - g >= 22 &&
+        r - b >= 28;
+      pixels[y * image.width + x] = isOrange ? 1 : 0;
+    }
+  }
+  return { width: image.width, height: image.height, pixels };
+}
+
+function detectOrangeComponents(image: ImageDataLike): ComponentWithCenter[] {
+  const mask = orangeMask(image);
+  const components = connectedComponents(mask);
+  const minArea = Math.max(
+    12,
+    Math.floor(image.width * image.height * 0.00005),
+  );
+  const maxArea = Math.max(100, Math.floor(image.width * image.height * 0.03));
+
+  const out: ComponentWithCenter[] = [];
+  for (const comp of components) {
+    const width = comp.x2 - comp.x1 + 1;
+    const height = comp.y2 - comp.y1 + 1;
+    const aspect = width / Math.max(1, height);
+
+    if (comp.area < minArea || comp.area > maxArea) {
+      continue;
+    }
+    if (width < 3 || height < 3) {
+      continue;
+    }
+    if (aspect < 0.35 || aspect > 2.2) {
+      continue;
+    }
+
+    out.push({
+      ...comp,
+      cx: (comp.x1 + comp.x2) / 2,
+      cy: (comp.y1 + comp.y2) / 2,
+    });
+  }
+
+  return out;
+}
+
+function selectLineGroupByAxis(
+  components: ComponentWithCenter[],
+  axis: 'x' | 'y',
+): ComponentWithCenter[] {
+  if (components.length < 5) {
+    return [];
+  }
+
+  const sizeMedian =
+    [...components]
+      .map((comp) => Math.max(comp.x2 - comp.x1 + 1, comp.y2 - comp.y1 + 1))
+      .sort((a, b) => a - b)[Math.floor(components.length / 2)] ?? 8;
+  const tolerance = Math.max(5, Math.floor(sizeMedian * 0.9));
+
+  let best: ComponentWithCenter[] = [];
+  let bestAxisMean = Number.NEGATIVE_INFINITY;
+
+  for (const seed of components) {
+    const seedValue = axis === 'x' ? seed.cx : seed.cy;
+    const group = components.filter((comp) => {
+      const value = axis === 'x' ? comp.cx : comp.cy;
+      return Math.abs(value - seedValue) <= tolerance;
+    });
+
+    if (group.length < 5) {
+      continue;
+    }
+
+    const axisMean =
+      group.reduce((acc, comp) => acc + (axis === 'x' ? comp.cx : comp.cy), 0) /
+      group.length;
+
+    if (
+      group.length > best.length ||
+      (group.length === best.length && axisMean > bestAxisMean)
+    ) {
+      best = group;
+      bestAxisMean = axisMean;
+    }
+  }
+
+  if (best.length === 0) {
+    return [];
+  }
+
+  best.sort((a, b) => (axis === 'x' ? a.cy - b.cy : a.cx - b.cx));
+  const deduped: ComponentWithCenter[] = [];
+  const secondaryTolerance = Math.max(5, Math.floor(sizeMedian * 0.7));
+
+  for (const comp of best) {
+    const last = deduped[deduped.length - 1];
+    if (!last) {
+      deduped.push(comp);
+      continue;
+    }
+    const sep =
+      axis === 'x' ? Math.abs(comp.cy - last.cy) : Math.abs(comp.cx - last.cx);
+    if (sep > secondaryTolerance) {
+      deduped.push(comp);
+    }
+  }
+
+  return deduped.slice(0, 5);
+}
+
+function buildHintRectsFromIcons(image: ImageDataLike): {
+  rowHintRects: Rect[];
+  colHintRects: Rect[];
+} | null {
+  const components = detectOrangeComponents(image);
+  if (components.length < 10) {
+    return null;
+  }
+
+  const rightIcons = selectLineGroupByAxis(components, 'x');
+  const bottomIcons = selectLineGroupByAxis(components, 'y');
+  if (rightIcons.length < 5 || bottomIcons.length < 5) {
+    return null;
+  }
+
+  const rowHintRects = rightIcons
+    .sort((a, b) => a.cy - b.cy)
+    .slice(0, 5)
+    .map((icon) => {
+      const w = icon.x2 - icon.x1 + 1;
+      const h = icon.y2 - icon.y1 + 1;
+      return toNormalizedRect(image, {
+        x: icon.x1 - w * 0.2,
+        y: icon.y1 - h * 1.32,
+        width: w * 2.8,
+        height: h * 2.35,
+      });
+    });
+
+  const colHintRects = bottomIcons
+    .sort((a, b) => a.cx - b.cx)
+    .slice(0, 5)
+    .map((icon) => {
+      const w = icon.x2 - icon.x1 + 1;
+      const h = icon.y2 - icon.y1 + 1;
+      return toNormalizedRect(image, {
+        x: icon.x1 - w * 0.32,
+        y: icon.y1 - h * 1.32,
+        width: w * 2.8,
+        height: h * 2.35,
+      });
+    });
+
+  return { rowHintRects, colHintRects };
+}
+
 function geometryFitsHintLayout(
   image: ImageDataLike,
   geometry: GridGeometry,
@@ -352,193 +552,315 @@ function geometryFitsHintLayout(
 }
 
 function detectGridGeometry(image: ImageDataLike): GridGeometry | null {
-  const thresholds = [35, 45, 55, 65, 75, 90, 105, 120, 135];
+  const darkThresholds = [35, 45, 55, 65, 75, 90, 105, 120, 135];
+  const brightThresholds = [155, 170, 185, 200, 215, 230, 240];
 
   let bestGeometry: GridGeometry | null = null;
   let bestScore = Number.NEGATIVE_INFINITY;
 
-  for (const threshold of thresholds) {
-    const xProfile = new Array(image.width).fill(0);
-    const yProfile = new Array(image.height).fill(0);
+  for (const mode of ['dark', 'bright'] as const) {
+    const thresholds = mode === 'dark' ? darkThresholds : brightThresholds;
+    for (const threshold of thresholds) {
+      const xProfile = new Array(image.width).fill(0);
+      const yProfile = new Array(image.height).fill(0);
 
-    for (let y = 0; y < image.height; y++) {
-      for (let x = 0; x < image.width; x++) {
-        if (getLuminance(image, x, y) <= threshold) {
+      for (let y = 0; y < image.height; y++) {
+        for (let x = 0; x < image.width; x++) {
+          const lum = getLuminance(image, x, y);
+          const isHit = mode === 'dark' ? lum <= threshold : lum >= threshold;
+          if (!isHit) {
+            continue;
+          }
           xProfile[x] += 1;
           yProfile[y] += 1;
         }
       }
-    }
 
-    const xCandidates = detectLineCandidates(xProfile, image.width);
-    const yCandidates = detectLineCandidates(yProfile, image.height);
-    const xLines = selectBestSixLines(xProfile, image.width, xCandidates);
-    const yLines = selectBestSixLines(yProfile, image.height, yCandidates);
+      const xCandidates = detectLineCandidates(xProfile, image.width);
+      const yCandidates = detectLineCandidates(yProfile, image.height);
+      const xLines = selectBestSixLines(xProfile, image.width, xCandidates);
+      const yLines = selectBestSixLines(yProfile, image.height, yCandidates);
 
-    if (!xLines || !yLines) {
-      continue;
-    }
+      if (!xLines || !yLines) {
+        continue;
+      }
 
-    const geometry = { xLines, yLines };
-    if (!geometryFitsHintLayout(image, geometry)) {
-      continue;
-    }
+      const geometry = { xLines, yLines };
+      if (!geometryFitsHintLayout(image, geometry)) {
+        continue;
+      }
 
-    const gridWidth = xLines[5] - xLines[0];
-    const gridHeight = yLines[5] - yLines[0];
-    const sizeScore = Math.sqrt(Math.max(1, gridWidth * gridHeight));
-    const lineScore =
-      xLines.reduce((acc, x) => acc + xProfile[x], 0) +
-      yLines.reduce((acc, y) => acc + yProfile[y], 0);
-    const score = lineScore + sizeScore * 18;
+      const gridWidth = xLines[5] - xLines[0];
+      const gridHeight = yLines[5] - yLines[0];
+      const sizeScore = Math.sqrt(Math.max(1, gridWidth * gridHeight));
+      const lineScore =
+        xLines.reduce((acc, x) => acc + xProfile[x], 0) +
+        yLines.reduce((acc, y) => acc + yProfile[y], 0);
+      const brightBoost = mode === 'bright' ? 1.08 : 1;
+      const score = lineScore * brightBoost + sizeScore * 18;
 
-    if (score > bestScore) {
-      bestScore = score;
-      bestGeometry = geometry;
+      if (score > bestScore) {
+        bestScore = score;
+        bestGeometry = geometry;
+      }
     }
   }
 
   return bestGeometry;
 }
 
-function binaryInkRatio(binary: BinaryRegion, zone: Rect): number {
-  return fillRatio(binary, {
-    x1: zone.x,
-    y1: zone.y,
-    x2: zone.x + zone.width,
-    y2: zone.y + zone.height,
-  });
-}
-
-function scoreHintRectStructure(image: ImageDataLike, rect: Rect): number {
-  const gray = getGrayRegion(image, rect);
-  const dark = binaryFromGray(gray, 'dark');
-
-  const topDigits = binaryInkRatio(dark, {
-    x: 0.1,
-    y: 0.06,
-    width: 0.8,
-    height: 0.5,
-  });
-  const bottomDigit = binaryInkRatio(dark, {
-    x: 0.58,
-    y: 0.55,
-    width: 0.35,
-    height: 0.4,
-  });
-  const border =
-    binaryInkRatio(dark, { x: 0, y: 0, width: 1, height: 0.08 }) +
-    binaryInkRatio(dark, { x: 0, y: 0.92, width: 1, height: 0.08 }) +
-    binaryInkRatio(dark, { x: 0, y: 0, width: 0.08, height: 1 }) +
-    binaryInkRatio(dark, { x: 0.92, y: 0, width: 0.08, height: 1 });
-  const center = binaryInkRatio(dark, {
-    x: 0.12,
-    y: 0.12,
-    width: 0.76,
-    height: 0.76,
-  });
-  const total =
-    dark.pixels.reduce((acc, p) => acc + p, 0) /
-    Math.max(1, dark.pixels.length);
-
-  const borderContrast = border * 0.25 - center;
-  const densityPenalty = Math.abs(total - 0.22);
-  return (
-    topDigits * 1.8 + bottomDigit * 1.4 + borderContrast * 1.8 - densityPenalty
-  );
-}
-
-function scoreHintStrip(image: ImageDataLike, rects: Rect[]): number {
-  return rects.reduce(
-    (acc, rect) => acc + scoreHintRectStructure(image, rect),
-    0,
-  );
-}
-
-function clampNormalizedRect(rect: Rect): Rect {
-  const x = Math.max(0, Math.min(0.98, rect.x));
-  const y = Math.max(0, Math.min(0.98, rect.y));
-  const width = Math.max(0.01, Math.min(1 - x, rect.width));
-  const height = Math.max(0.01, Math.min(1 - y, rect.height));
-  return { x, y, width, height };
-}
-
-function refineHintRect(image: ImageDataLike, seed: Rect): Rect {
-  const dxOptions = [-0.1, -0.06, -0.03, 0, 0.03, 0.06, 0.1];
-  const dyOptions = [-0.1, -0.06, -0.03, 0, 0.03, 0.06, 0.1];
-  const scaleOptions = [0.92, 0.98, 1, 1.04, 1.1];
-
-  let best = seed;
-  let bestScore = scoreHintRectStructure(image, seed);
-
-  for (const sx of scaleOptions) {
-    for (const sy of scaleOptions) {
-      const width = seed.width * sx;
-      const height = seed.height * sy;
-      const widthDelta = width - seed.width;
-      const heightDelta = height - seed.height;
-
-      for (const dx of dxOptions) {
-        for (const dy of dyOptions) {
-          const candidate = clampNormalizedRect({
-            x: seed.x + dx * seed.width - widthDelta * 0.5,
-            y: seed.y + dy * seed.height - heightDelta * 0.5,
-            width,
-            height,
-          });
-          const score = scoreHintRectStructure(image, candidate);
-          if (score > bestScore) {
-            best = candidate;
-            bestScore = score;
-          }
-        }
-      }
-    }
-  }
-
-  return best;
-}
-
-function refineHintStrip(image: ImageDataLike, seed: Rect[]): Rect[] {
-  return seed.map((rect) => refineHintRect(image, rect));
-}
-
 function selectHintRects(image: ImageDataLike): {
   rowHintRects: Rect[];
   colHintRects: Rect[];
 } {
+  const iconRects = buildHintRectsFromIcons(image);
+  if (iconRects) {
+    return iconRects;
+  }
+
   const geometry = detectGridGeometry(image);
-  const geometryRects = geometry
-    ? buildHintRectsFromGrid(image, geometry)
-    : null;
+  if (geometry) {
+    return buildHintRectsFromGrid(image, geometry);
+  }
+  return {
+    rowHintRects: DEFAULT_ROW_HINT_RECTS,
+    colHintRects: DEFAULT_COL_HINT_RECTS,
+  };
+}
 
-  const seedCandidates = [
-    {
-      rowHintRects: DEFAULT_ROW_HINT_RECTS,
-      colHintRects: DEFAULT_COL_HINT_RECTS,
-    },
-    geometryRects,
-  ].filter(
-    (value): value is { rowHintRects: Rect[]; colHintRects: Rect[] } =>
-      value !== null,
-  );
+function solveLinearSystem8x8(A: number[][], b: number[]): number[] | null {
+  const n = 8;
+  const M = A.map((row, i) => [...row, b[i]]);
 
-  let best = seedCandidates[0];
-  let bestScore = Number.NEGATIVE_INFINITY;
+  for (let col = 0; col < n; col++) {
+    let pivot = col;
+    for (let row = col + 1; row < n; row++) {
+      if (Math.abs(M[row][col]) > Math.abs(M[pivot][col])) {
+        pivot = row;
+      }
+    }
+    if (Math.abs(M[pivot][col]) < 1e-9) {
+      return null;
+    }
+    if (pivot !== col) {
+      const tmp = M[col];
+      M[col] = M[pivot];
+      M[pivot] = tmp;
+    }
 
-  for (const candidate of seedCandidates) {
-    const rowHintRects = refineHintStrip(image, candidate.rowHintRects);
-    const colHintRects = refineHintStrip(image, candidate.colHintRects);
-    const score =
-      scoreHintStrip(image, rowHintRects) +
-      scoreHintStrip(image, colHintRects) * 1.05;
-    if (score > bestScore) {
-      bestScore = score;
-      best = { rowHintRects, colHintRects };
+    const div = M[col][col];
+    for (let j = col; j <= n; j++) {
+      M[col][j] /= div;
+    }
+
+    for (let row = 0; row < n; row++) {
+      if (row === col) continue;
+      const factor = M[row][col];
+      if (factor === 0) continue;
+      for (let j = col; j <= n; j++) {
+        M[row][j] -= factor * M[col][j];
+      }
     }
   }
 
-  return best;
+  return M.map((row) => row[n]);
+}
+
+function computeHomography(src: Point[], dst: Point[]): number[] | null {
+  if (src.length !== 4 || dst.length !== 4) {
+    return null;
+  }
+
+  const A: number[][] = [];
+  const b: number[] = [];
+  for (let i = 0; i < 4; i++) {
+    const x = src[i].x;
+    const y = src[i].y;
+    const u = dst[i].x;
+    const v = dst[i].y;
+
+    A.push([x, y, 1, 0, 0, 0, -u * x, -u * y]);
+    b.push(u);
+    A.push([0, 0, 0, x, y, 1, -v * x, -v * y]);
+    b.push(v);
+  }
+
+  const h = solveLinearSystem8x8(A, b);
+  if (!h) {
+    return null;
+  }
+
+  return [h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7], 1];
+}
+
+function invert3x3(m: number[]): number[] | null {
+  const [a, b, c, d, e, f, g, h, i] = m;
+  const A = e * i - f * h;
+  const B = -(d * i - f * g);
+  const C = d * h - e * g;
+  const D = -(b * i - c * h);
+  const E = a * i - c * g;
+  const F = -(a * h - b * g);
+  const G = b * f - c * e;
+  const H = -(a * f - c * d);
+  const I = a * e - b * d;
+
+  const det = a * A + b * B + c * C;
+  if (Math.abs(det) < 1e-9) {
+    return null;
+  }
+
+  const invDet = 1 / det;
+  return [
+    A * invDet,
+    D * invDet,
+    G * invDet,
+    B * invDet,
+    E * invDet,
+    H * invDet,
+    C * invDet,
+    F * invDet,
+    I * invDet,
+  ];
+}
+
+function applyHomographyPoint(m: number[], x: number, y: number): Point {
+  const tx = m[0] * x + m[1] * y + m[2];
+  const ty = m[3] * x + m[4] * y + m[5];
+  const tw = m[6] * x + m[7] * y + m[8];
+  const w = Math.abs(tw) < 1e-9 ? 1e-9 : tw;
+  return { x: tx / w, y: ty / w };
+}
+
+function sampleBilinearRGBA(
+  image: ImageDataLike,
+  x: number,
+  y: number,
+): number[] {
+  const x0 = Math.floor(x);
+  const y0 = Math.floor(y);
+  const x1 = x0 + 1;
+  const y1 = y0 + 1;
+
+  if (x0 < 0 || y0 < 0 || x1 >= image.width || y1 >= image.height) {
+    return [0, 0, 0, 0];
+  }
+
+  const fx = x - x0;
+  const fy = y - y0;
+
+  const idx00 = (y0 * image.width + x0) * 4;
+  const idx10 = (y0 * image.width + x1) * 4;
+  const idx01 = (y1 * image.width + x0) * 4;
+  const idx11 = (y1 * image.width + x1) * 4;
+
+  const out = [0, 0, 0, 0];
+  for (let c = 0; c < 4; c++) {
+    const v00 = image.data[idx00 + c];
+    const v10 = image.data[idx10 + c];
+    const v01 = image.data[idx01 + c];
+    const v11 = image.data[idx11 + c];
+
+    const v0 = v00 * (1 - fx) + v10 * fx;
+    const v1 = v01 * (1 - fx) + v11 * fx;
+    out[c] = v0 * (1 - fy) + v1 * fy;
+  }
+
+  return out;
+}
+
+interface CanonicalBoardImage {
+  image: ImageDataLike;
+  rowHintRects: Rect[];
+  colHintRects: Rect[];
+}
+
+function normalizeToCanonicalBoard(
+  image: ImageDataLike,
+): CanonicalBoardImage | null {
+  const geometry = detectGridGeometry(image);
+  if (!geometry) {
+    return null;
+  }
+
+  const srcCorners: Point[] = [
+    { x: geometry.xLines[0], y: geometry.yLines[0] },
+    { x: geometry.xLines[5], y: geometry.yLines[0] },
+    { x: geometry.xLines[5], y: geometry.yLines[5] },
+    { x: geometry.xLines[0], y: geometry.yLines[5] },
+  ];
+
+  const cell = 88;
+  const leftPad = Math.floor(cell * 0.26);
+  const topPad = Math.floor(cell * 0.26);
+  const rightPad = Math.floor(cell * 1.56);
+  const bottomPad = Math.floor(cell * 1.38);
+  const boardSize = cell * 5;
+
+  const outWidth = leftPad + boardSize + rightPad;
+  const outHeight = topPad + boardSize + bottomPad;
+
+  const dstCorners: Point[] = [
+    { x: leftPad, y: topPad },
+    { x: leftPad + boardSize, y: topPad },
+    { x: leftPad + boardSize, y: topPad + boardSize },
+    { x: leftPad, y: topPad + boardSize },
+  ];
+
+  const H = computeHomography(srcCorners, dstCorners);
+  if (!H) {
+    return null;
+  }
+  const Hinv = invert3x3(H);
+  if (!Hinv) {
+    return null;
+  }
+
+  const data = new Uint8ClampedArray(outWidth * outHeight * 4);
+  for (let y = 0; y < outHeight; y++) {
+    for (let x = 0; x < outWidth; x++) {
+      const src = applyHomographyPoint(Hinv, x, y);
+      const rgba = sampleBilinearRGBA(image, src.x, src.y);
+      const idx = (y * outWidth + x) * 4;
+      data[idx] = Math.round(rgba[0]);
+      data[idx + 1] = Math.round(rgba[1]);
+      data[idx + 2] = Math.round(rgba[2]);
+      data[idx + 3] = Math.round(rgba[3]);
+    }
+  }
+
+  const canonical: ImageDataLike = {
+    width: outWidth,
+    height: outHeight,
+    data,
+  };
+
+  const boardX = leftPad;
+  const boardY = topPad;
+
+  const rowHintRects = [0, 1, 2, 3, 4].map((row) =>
+    toNormalizedRect(canonical, {
+      x: boardX + boardSize + cell * 0.24,
+      y: boardY + row * cell + cell * 0.06,
+      width: cell * 0.82,
+      height: cell * 0.88,
+    }),
+  );
+
+  const colHintRects = [0, 1, 2, 3, 4].map((col) =>
+    toNormalizedRect(canonical, {
+      x: boardX + col * cell + cell * 0.08,
+      y: boardY + boardSize + cell * 0.22,
+      width: cell * 0.84,
+      height: cell * 0.82,
+    }),
+  );
+
+  return {
+    image: canonical,
+    rowHintRects,
+    colHintRects,
+  };
 }
 
 function getGrayRegion(image: ImageDataLike, rect: Rect): GrayRegion {
@@ -639,73 +961,227 @@ function binaryFromColorDistance(
   };
 }
 
-function findConnectedComponents(binary: BinaryRegion): Component[] {
+function dilateBinary(binary: BinaryRegion, iterations: number): BinaryRegion {
+  let current = binary;
+  for (let iter = 0; iter < iterations; iter++) {
+    const next = new Uint8Array(current.width * current.height);
+    for (let y = 0; y < current.height; y++) {
+      for (let x = 0; x < current.width; x++) {
+        let on = 0;
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const nx = x + dx;
+            const ny = y + dy;
+            if (
+              nx < 0 ||
+              ny < 0 ||
+              nx >= current.width ||
+              ny >= current.height
+            ) {
+              continue;
+            }
+            if (current.pixels[ny * current.width + nx] === 1) {
+              on = 1;
+            }
+          }
+        }
+        next[y * current.width + x] = on;
+      }
+    }
+    current = { width: current.width, height: current.height, pixels: next };
+  }
+  return current;
+}
+
+function erodeBinary(binary: BinaryRegion, iterations: number): BinaryRegion {
+  let current = binary;
+  for (let iter = 0; iter < iterations; iter++) {
+    const next = new Uint8Array(current.width * current.height);
+    for (let y = 0; y < current.height; y++) {
+      for (let x = 0; x < current.width; x++) {
+        let on = 1;
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const nx = x + dx;
+            const ny = y + dy;
+            if (
+              nx < 0 ||
+              ny < 0 ||
+              nx >= current.width ||
+              ny >= current.height ||
+              current.pixels[ny * current.width + nx] === 0
+            ) {
+              on = 0;
+            }
+          }
+        }
+        next[y * current.width + x] = on;
+      }
+    }
+    current = { width: current.width, height: current.height, pixels: next };
+  }
+  return current;
+}
+
+function denoiseInk(binary: BinaryRegion): BinaryRegion {
+  const closed = erodeBinary(dilateBinary(binary, 1), 1);
+  return dilateBinary(closed, 1);
+}
+
+interface ComponentBox {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  area: number;
+  touchesBorder: boolean;
+}
+
+function connectedComponents(binary: BinaryRegion): ComponentBox[] {
   const visited = new Uint8Array(binary.width * binary.height);
-  const components: Component[] = [];
+  const components: ComponentBox[] = [];
+  const queue: number[] = [];
 
   for (let y = 0; y < binary.height; y++) {
     for (let x = 0; x < binary.width; x++) {
       const startIdx = y * binary.width + x;
-      if (visited[startIdx] === 1 || binary.pixels[startIdx] === 0) {
+      if (binary.pixels[startIdx] === 0 || visited[startIdx] === 1) {
         continue;
       }
 
-      visited[startIdx] = 1;
-      const stack: [number, number][] = [[x, y]];
-      let area = 0;
       let x1 = x;
       let y1 = y;
       let x2 = x;
       let y2 = y;
+      let area = 0;
+      let touchesBorder =
+        x === 0 || y === 0 || x === binary.width - 1 || y === binary.height - 1;
 
-      while (stack.length > 0) {
-        const [cx, cy] = stack.pop() as [number, number];
+      visited[startIdx] = 1;
+      queue.length = 0;
+      queue.push(startIdx);
+
+      for (let cursor = 0; cursor < queue.length; cursor++) {
+        const idx = queue[cursor];
+        const cx = idx % binary.width;
+        const cy = Math.floor(idx / binary.width);
         area += 1;
-        if (cx < x1) x1 = cx;
-        if (cx > x2) x2 = cx;
-        if (cy < y1) y1 = cy;
-        if (cy > y2) y2 = cy;
 
-        const neighbors: [number, number][] = [
+        if (cx < x1) x1 = cx;
+        if (cy < y1) y1 = cy;
+        if (cx > x2) x2 = cx;
+        if (cy > y2) y2 = cy;
+        if (
+          cx === 0 ||
+          cy === 0 ||
+          cx === binary.width - 1 ||
+          cy === binary.height - 1
+        ) {
+          touchesBorder = true;
+        }
+
+        const neighbors = [
           [cx - 1, cy],
           [cx + 1, cy],
           [cx, cy - 1],
           [cx, cy + 1],
+          [cx - 1, cy - 1],
+          [cx + 1, cy - 1],
+          [cx - 1, cy + 1],
+          [cx + 1, cy + 1],
         ];
-
         for (const [nx, ny] of neighbors) {
           if (nx < 0 || ny < 0 || nx >= binary.width || ny >= binary.height) {
             continue;
           }
           const nIdx = ny * binary.width + nx;
-          if (visited[nIdx] === 1 || binary.pixels[nIdx] === 0) {
-            continue;
+          if (binary.pixels[nIdx] === 1 && visited[nIdx] === 0) {
+            visited[nIdx] = 1;
+            queue.push(nIdx);
           }
-          visited[nIdx] = 1;
-          stack.push([nx, ny]);
         }
       }
 
-      components.push({ x1, y1, x2, y2, area });
+      components.push({ x1, y1, x2, y2, area, touchesBorder });
     }
   }
 
   return components;
 }
 
-function cropBinary(
-  binary: BinaryRegion,
-  component: Component,
-  padRatio = 0.12,
-): BinaryRegion {
-  const compWidth = component.x2 - component.x1 + 1;
-  const compHeight = component.y2 - component.y1 + 1;
-  const padX = Math.max(1, Math.floor(compWidth * padRatio));
-  const padY = Math.max(1, Math.floor(compHeight * padRatio));
-  const x1 = Math.max(0, component.x1 - padX);
-  const y1 = Math.max(0, component.y1 - padY);
-  const x2 = Math.min(binary.width - 1, component.x2 + padX);
-  const y2 = Math.min(binary.height - 1, component.y2 + padY);
+function keepLikelyDigitComponents(binary: BinaryRegion): BinaryRegion {
+  const components = connectedComponents(binary);
+  const minArea = Math.max(4, Math.floor(binary.width * binary.height * 0.002));
+  const maxArea = Math.max(20, Math.floor(binary.width * binary.height * 0.45));
+  const out = new Uint8Array(binary.width * binary.height);
+
+  for (const comp of components) {
+    const width = comp.x2 - comp.x1 + 1;
+    const height = comp.y2 - comp.y1 + 1;
+    const aspect = width / Math.max(1, height);
+
+    if (comp.area < minArea || comp.area > maxArea) {
+      continue;
+    }
+    if (comp.touchesBorder && comp.area > maxArea * 0.28) {
+      continue;
+    }
+    if (aspect < 0.08 || aspect > 1.6) {
+      continue;
+    }
+
+    for (let y = comp.y1; y <= comp.y2; y++) {
+      for (let x = comp.x1; x <= comp.x2; x++) {
+        const idx = y * binary.width + x;
+        if (binary.pixels[idx] === 1) {
+          out[idx] = 1;
+        }
+      }
+    }
+  }
+
+  return { width: binary.width, height: binary.height, pixels: out };
+}
+
+function buildDigitInkMask(image: ImageDataLike, rect: Rect): BinaryRegion {
+  const gray = getGrayRegion(image, rect);
+  const darkByQuantile = binaryFromGray(gray, 'dark');
+  const low = quantile(gray.values, 0.08);
+  const mid = quantile(gray.values, 0.4);
+  const threshold = low + (mid - low) * 0.52;
+
+  const pixels = new Uint8Array(gray.values.length);
+  for (let i = 0; i < gray.values.length; i++) {
+    const strictDark = gray.values[i] <= threshold ? 1 : 0;
+    pixels[i] = strictDark | darkByQuantile.pixels[i];
+  }
+
+  const rough = { width: gray.width, height: gray.height, pixels };
+  const cleaned = denoiseInk(rough);
+  return keepLikelyDigitComponents(cleaned);
+}
+
+function tightCropBinary(binary: BinaryRegion): BinaryRegion {
+  let x1 = binary.width;
+  let y1 = binary.height;
+  let x2 = -1;
+  let y2 = -1;
+
+  for (let y = 0; y < binary.height; y++) {
+    for (let x = 0; x < binary.width; x++) {
+      if (binary.pixels[y * binary.width + x] === 0) {
+        continue;
+      }
+      if (x < x1) x1 = x;
+      if (x > x2) x2 = x;
+      if (y < y1) y1 = y;
+      if (y > y2) y2 = y;
+    }
+  }
+
+  if (x2 < x1 || y2 < y1) {
+    return binary;
+  }
 
   const width = x2 - x1 + 1;
   const height = y2 - y1 + 1;
@@ -719,221 +1195,384 @@ function cropBinary(
   return { width, height, pixels };
 }
 
-function fillRatio(
+function resizeBinaryNearest(
   binary: BinaryRegion,
-  rect: { x1: number; y1: number; x2: number; y2: number },
-): number {
-  const x1 = Math.max(0, Math.floor(rect.x1 * binary.width));
-  const y1 = Math.max(0, Math.floor(rect.y1 * binary.height));
-  const x2 = Math.min(binary.width, Math.ceil(rect.x2 * binary.width));
-  const y2 = Math.min(binary.height, Math.ceil(rect.y2 * binary.height));
+  targetWidth: number,
+  targetHeight: number,
+): BinaryRegion {
+  const pixels = new Uint8Array(targetWidth * targetHeight);
+  for (let y = 0; y < targetHeight; y++) {
+    const srcY = Math.min(
+      binary.height - 1,
+      Math.floor(((y + 0.5) * binary.height) / targetHeight),
+    );
+    for (let x = 0; x < targetWidth; x++) {
+      const srcX = Math.min(
+        binary.width - 1,
+        Math.floor(((x + 0.5) * binary.width) / targetWidth),
+      );
+      pixels[y * targetWidth + x] = binary.pixels[srcY * binary.width + srcX];
+    }
+  }
+  return { width: targetWidth, height: targetHeight, pixels };
+}
 
-  let total = 0;
-  let on = 0;
-  for (let y = y1; y < y2; y++) {
-    for (let x = x1; x < x2; x++) {
-      total += 1;
-      on += binary.pixels[y * binary.width + x];
+function normalizeDigitToTemplate(binary: BinaryRegion): BinaryRegion {
+  const tight = tightCropBinary(binary);
+  const padX = Math.max(1, Math.floor(DIGIT_TEMPLATE_WIDTH * 0.12));
+  const padY = Math.max(1, Math.floor(DIGIT_TEMPLATE_HEIGHT * 0.1));
+  const contentW = Math.max(1, DIGIT_TEMPLATE_WIDTH - padX * 2);
+  const contentH = Math.max(1, DIGIT_TEMPLATE_HEIGHT - padY * 2);
+
+  const scale = Math.min(contentW / tight.width, contentH / tight.height);
+  const scaledW = Math.max(1, Math.round(tight.width * scale));
+  const scaledH = Math.max(1, Math.round(tight.height * scale));
+  const resized = resizeBinaryNearest(tight, scaledW, scaledH);
+
+  const canvas = new Uint8Array(DIGIT_TEMPLATE_WIDTH * DIGIT_TEMPLATE_HEIGHT);
+  const ox = Math.floor((DIGIT_TEMPLATE_WIDTH - scaledW) / 2);
+  const oy = Math.floor((DIGIT_TEMPLATE_HEIGHT - scaledH) / 2);
+
+  for (let y = 0; y < scaledH; y++) {
+    for (let x = 0; x < scaledW; x++) {
+      canvas[(oy + y) * DIGIT_TEMPLATE_WIDTH + (ox + x)] =
+        resized.pixels[y * scaledW + x];
     }
   }
 
-  return total === 0 ? 0 : on / total;
+  return {
+    width: DIGIT_TEMPLATE_WIDTH,
+    height: DIGIT_TEMPLATE_HEIGHT,
+    pixels: canvas,
+  };
+}
+
+function countHoles(binary: BinaryRegion): number {
+  const visited = new Uint8Array(binary.width * binary.height);
+  const queue: number[] = [];
+
+  for (let x = 0; x < binary.width; x++) {
+    for (const y of [0, binary.height - 1]) {
+      const idx = y * binary.width + x;
+      if (binary.pixels[idx] === 0 && visited[idx] === 0) {
+        visited[idx] = 1;
+        queue.push(idx);
+      }
+    }
+  }
+  for (let y = 0; y < binary.height; y++) {
+    for (const x of [0, binary.width - 1]) {
+      const idx = y * binary.width + x;
+      if (binary.pixels[idx] === 0 && visited[idx] === 0) {
+        visited[idx] = 1;
+        queue.push(idx);
+      }
+    }
+  }
+
+  let cursor = 0;
+  while (cursor < queue.length) {
+    const idx = queue[cursor++];
+    const x = idx % binary.width;
+    const y = Math.floor(idx / binary.width);
+    const neighbors = [
+      [x - 1, y],
+      [x + 1, y],
+      [x, y - 1],
+      [x, y + 1],
+    ];
+    for (const [nx, ny] of neighbors) {
+      if (nx < 0 || ny < 0 || nx >= binary.width || ny >= binary.height) {
+        continue;
+      }
+      const nIdx = ny * binary.width + nx;
+      if (binary.pixels[nIdx] === 0 && visited[nIdx] === 0) {
+        visited[nIdx] = 1;
+        queue.push(nIdx);
+      }
+    }
+  }
+
+  let holes = 0;
+  for (let y = 1; y < binary.height - 1; y++) {
+    for (let x = 1; x < binary.width - 1; x++) {
+      const idx = y * binary.width + x;
+      if (binary.pixels[idx] === 1 || visited[idx] === 1) {
+        continue;
+      }
+
+      holes += 1;
+      visited[idx] = 1;
+      queue.length = 0;
+      queue.push(idx);
+      cursor = 0;
+      while (cursor < queue.length) {
+        const cell = queue[cursor++];
+        const cx = cell % binary.width;
+        const cy = Math.floor(cell / binary.width);
+        const neighbors = [
+          [cx - 1, cy],
+          [cx + 1, cy],
+          [cx, cy - 1],
+          [cx, cy + 1],
+        ];
+        for (const [nx, ny] of neighbors) {
+          if (nx < 0 || ny < 0 || nx >= binary.width || ny >= binary.height) {
+            continue;
+          }
+          const nIdx = ny * binary.width + nx;
+          if (binary.pixels[nIdx] === 0 && visited[nIdx] === 0) {
+            visited[nIdx] = 1;
+            queue.push(nIdx);
+          }
+        }
+      }
+    }
+  }
+
+  return holes;
+}
+
+function templateMismatch(a: BinaryRegion, b: BinaryRegion): number {
+  let mismatches = 0;
+  const total = Math.min(a.pixels.length, b.pixels.length);
+  for (let i = 0; i < total; i++) {
+    if (a.pixels[i] !== b.pixels[i]) {
+      mismatches += 1;
+    }
+  }
+  return total === 0 ? 1 : mismatches / total;
+}
+
+function shiftedMismatch(
+  sample: BinaryRegion,
+  template: BinaryRegion,
+  dx: number,
+  dy: number,
+): number {
+  let mismatches = 0;
+  let total = 0;
+  for (let y = 0; y < sample.height; y++) {
+    const ty = y + dy;
+    if (ty < 0 || ty >= template.height) {
+      continue;
+    }
+    for (let x = 0; x < sample.width; x++) {
+      const tx = x + dx;
+      if (tx < 0 || tx >= template.width) {
+        continue;
+      }
+      total += 1;
+      if (
+        sample.pixels[y * sample.width + x] !==
+        template.pixels[ty * template.width + tx]
+      ) {
+        mismatches += 1;
+      }
+    }
+  }
+
+  return total === 0 ? 1 : mismatches / total;
+}
+
+const SEVEN_SEGMENT_PATTERNS: Record<
+  number,
+  [number, number, number, number, number, number, number]
+> = {
+  0: [1, 1, 1, 0, 1, 1, 1],
+  1: [0, 0, 1, 0, 0, 1, 0],
+  2: [1, 0, 1, 1, 1, 0, 1],
+  3: [1, 0, 1, 1, 0, 1, 1],
+  4: [0, 1, 1, 1, 0, 1, 0],
+  5: [1, 1, 0, 1, 0, 1, 1],
+  6: [1, 1, 0, 1, 1, 1, 1],
+  7: [1, 0, 1, 0, 0, 1, 0],
+  8: [1, 1, 1, 1, 1, 1, 1],
+  9: [1, 1, 1, 1, 0, 1, 1],
+};
+
+function regionDensity(
+  binary: BinaryRegion,
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+): number {
+  const sx1 = Math.max(0, Math.floor(x1 * binary.width));
+  const sy1 = Math.max(0, Math.floor(y1 * binary.height));
+  const sx2 = Math.min(binary.width, Math.ceil(x2 * binary.width));
+  const sy2 = Math.min(binary.height, Math.ceil(y2 * binary.height));
+
+  let total = 0;
+  let ink = 0;
+  for (let y = sy1; y < sy2; y++) {
+    for (let x = sx1; x < sx2; x++) {
+      total += 1;
+      ink += binary.pixels[y * binary.width + x];
+    }
+  }
+
+  return total === 0 ? 0 : ink / total;
+}
+
+function sevenSegmentScore(normalized: BinaryRegion, digit: number): number {
+  const expected = SEVEN_SEGMENT_PATTERNS[digit];
+  if (!expected) {
+    return 1;
+  }
+
+  const densities = [
+    regionDensity(normalized, 0.22, 0.03, 0.78, 0.18),
+    regionDensity(normalized, 0.08, 0.16, 0.34, 0.46),
+    regionDensity(normalized, 0.66, 0.16, 0.92, 0.46),
+    regionDensity(normalized, 0.22, 0.44, 0.78, 0.6),
+    regionDensity(normalized, 0.08, 0.56, 0.34, 0.9),
+    regionDensity(normalized, 0.66, 0.56, 0.92, 0.9),
+    regionDensity(normalized, 0.22, 0.84, 0.78, 0.98),
+  ];
+
+  let penalty = 0;
+  for (let i = 0; i < densities.length; i++) {
+    const target = expected[i] === 1 ? 0.2 : 0.02;
+    penalty += Math.abs(densities[i] - target);
+  }
+
+  return penalty / densities.length;
+}
+
+function getDigitCandidates(binary: BinaryRegion): DigitCandidate[] {
+  const normalized = normalizeDigitToTemplate(binary);
+  const sampleHoles = countHoles(normalized);
+  const candidates: DigitCandidate[] = [];
+
+  for (const [digitText, template] of Object.entries(DIGIT_TEMPLATES)) {
+    const digit = Number(digitText);
+    let templateScore = templateMismatch(normalized, template);
+    for (const dy of [-1, 0, 1]) {
+      for (const dx of [-1, 0, 1]) {
+        const shifted = shiftedMismatch(normalized, template, dx, dy);
+        if (shifted < templateScore) {
+          templateScore = shifted;
+        }
+      }
+    }
+
+    const templateHoles = countHoles(template);
+    const holePenalty = Math.abs(sampleHoles - templateHoles) * 0.05;
+    const segmentPenalty = sevenSegmentScore(normalized, digit);
+    const score = templateScore * 0.5 + segmentPenalty * 0.45 + holePenalty;
+    candidates.push({ digit, score });
+  }
+
+  candidates.sort((a, b) => a.score - b.score);
+  return candidates;
 }
 
 function scoreSevenSegmentDigit(binary: BinaryRegion): {
   digit: number;
   score: number;
 } {
-  const segmentRatios: [
-    number,
-    number,
-    number,
-    number,
-    number,
-    number,
-    number,
-  ] = [
-    fillRatio(binary, { x1: 0.18, y1: 0.04, x2: 0.82, y2: 0.18 }),
-    fillRatio(binary, { x1: 0.04, y1: 0.12, x2: 0.31, y2: 0.47 }),
-    fillRatio(binary, { x1: 0.69, y1: 0.12, x2: 0.96, y2: 0.47 }),
-    fillRatio(binary, { x1: 0.18, y1: 0.41, x2: 0.82, y2: 0.6 }),
-    fillRatio(binary, { x1: 0.04, y1: 0.52, x2: 0.31, y2: 0.88 }),
-    fillRatio(binary, { x1: 0.69, y1: 0.52, x2: 0.96, y2: 0.88 }),
-    fillRatio(binary, { x1: 0.18, y1: 0.82, x2: 0.82, y2: 0.98 }),
-  ];
-
-  const aspect = binary.width / Math.max(1, binary.height);
-  const centerFill = fillRatio(binary, {
-    x1: 0.34,
-    y1: 0.37,
-    x2: 0.66,
-    y2: 0.67,
-  });
-
-  let bestDigit = 0;
-  let bestScore = Number.POSITIVE_INFINITY;
-
-  for (const [digitText, target] of Object.entries(DIGIT_SEGMENTS)) {
-    const digit = Number(digitText);
-    let score = 0;
-    for (let i = 0; i < 7; i++) {
-      score += target[i] === 1 ? 1 - segmentRatios[i] : segmentRatios[i];
-    }
-
-    if (digit === 1) {
-      score += Math.max(0, aspect - 0.62) * 2.5;
-    }
-    if (digit === 0) {
-      score += centerFill * 1.2;
-    }
-    if (digit === 8) {
-      score += Math.max(0, 0.18 - centerFill) * 1.2;
-    }
-
-    if (score < bestScore) {
-      bestScore = score;
-      bestDigit = digit;
-    }
-  }
-
-  return { digit: bestDigit, score: bestScore };
+  const best = getDigitCandidates(binary)[0] ?? { digit: 0, score: 1 };
+  return { digit: best.digit, score: best.score };
 }
 
-function digitFromComponent(
-  binary: BinaryRegion,
-  component: Component,
-): DigitReadResult {
-  const cropped = cropBinary(binary, component);
-  const ink = cropped.pixels.reduce((acc, p) => acc + p, 0);
-  const total = Math.max(1, cropped.width * cropped.height);
-  const inkRatio = ink / total;
-  const score = scoreSevenSegmentDigit(cropped);
-  return {
-    digit: score.digit,
-    score: score.score,
-    inkRatio,
-  };
-}
-
-function componentCenterX(component: Component): number {
-  return (component.x1 + component.x2) * 0.5;
-}
-
-function componentCenterY(component: Component): number {
-  return (component.y1 + component.y2) * 0.5;
-}
-
-function splitWideComponent(
-  binary: BinaryRegion,
-  component: Component,
-): Component[] {
-  const width = component.x2 - component.x1 + 1;
-  const height = component.y2 - component.y1 + 1;
-  if (width / Math.max(1, height) < 0.95) {
-    return [component];
-  }
-
-  const profile = new Array(width).fill(0);
-  for (let y = component.y1; y <= component.y2; y++) {
-    for (let x = component.x1; x <= component.x2; x++) {
-      profile[x - component.x1] += binary.pixels[y * binary.width + x];
-    }
-  }
-
-  const start = Math.floor(width * 0.25);
-  const end = Math.ceil(width * 0.75);
-  let valleyIndex = -1;
-  let valleyValue = Number.POSITIVE_INFINITY;
-  for (let i = start; i < end; i++) {
-    if (profile[i] < valleyValue) {
-      valleyValue = profile[i];
-      valleyIndex = i;
-    }
-  }
-
-  if (valleyIndex < 0) {
-    return [component];
-  }
-  const maxCol = Math.max(...profile);
-  if (valleyValue > maxCol * 0.46) {
-    return [component];
-  }
-
-  const splitX = component.x1 + valleyIndex;
-  if (splitX <= component.x1 + 1 || splitX >= component.x2 - 1) {
-    return [component];
-  }
-
-  const left: Component = {
-    x1: component.x1,
-    y1: component.y1,
-    x2: splitX - 1,
-    y2: component.y2,
-    area: 0,
-  };
-  const right: Component = {
-    x1: splitX + 1,
-    y1: component.y1,
-    x2: component.x2,
-    y2: component.y2,
-    area: 0,
-  };
-
-  for (let y = component.y1; y <= component.y2; y++) {
-    for (let x = component.x1; x <= component.x2; x++) {
-      const p = binary.pixels[y * binary.width + x];
-      if (p === 0) {
-        continue;
-      }
-      if (x <= left.x2) {
-        left.area += 1;
-      } else if (x >= right.x1) {
-        right.area += 1;
-      }
-    }
-  }
-
-  const out: Component[] = [];
-  if (left.area > 0) {
-    out.push(left);
-  }
-  if (right.area > 0) {
-    out.push(right);
-  }
-  return out.length >= 2 ? out : [component];
-}
-
-function detectDigitComponentsInZone(
+function cropBinaryByZone(
   binary: BinaryRegion,
   zone: { x1: number; y1: number; x2: number; y2: number },
-): Component[] {
-  const all = findConnectedComponents(binary);
-  const minArea = (binary.width * binary.height) / 500;
-  const maxArea = (binary.width * binary.height) / 3;
-  const components: Component[] = [];
-
-  for (const component of all) {
-    if (component.area < minArea || component.area > maxArea) {
-      continue;
+): BinaryRegion {
+  const x1 = Math.max(0, Math.floor(zone.x1 * binary.width));
+  const y1 = Math.max(0, Math.floor(zone.y1 * binary.height));
+  const x2 = Math.min(binary.width, Math.ceil(zone.x2 * binary.width));
+  const y2 = Math.min(binary.height, Math.ceil(zone.y2 * binary.height));
+  const width = Math.max(1, x2 - x1);
+  const height = Math.max(1, y2 - y1);
+  const pixels = new Uint8Array(width * height);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      pixels[y * width + x] = binary.pixels[(y1 + y) * binary.width + (x1 + x)];
     }
+  }
+  return { width, height, pixels };
+}
 
-    const cx = componentCenterX(component) / binary.width;
-    const cy = componentCenterY(component) / binary.height;
-    if (cx < zone.x1 || cx > zone.x2 || cy < zone.y1 || cy > zone.y2) {
-      continue;
+function splitDigitRuns(
+  binary: BinaryRegion,
+): Array<{ x1: number; x2: number }> {
+  const colInk = new Array(binary.width).fill(0);
+  for (let y = 0; y < binary.height; y++) {
+    for (let x = 0; x < binary.width; x++) {
+      colInk[x] += binary.pixels[y * binary.width + x];
     }
-
-    const width = component.x2 - component.x1 + 1;
-    const height = component.y2 - component.y1 + 1;
-    const aspect = width / Math.max(1, height);
-    if (aspect < 0.18 || aspect > 1.5) {
-      continue;
-    }
-
-    components.push(...splitWideComponent(binary, component));
   }
 
-  return components;
+  const minInk = Math.max(1, Math.floor(binary.height * 0.06));
+  const runs: Array<{ x1: number; x2: number }> = [];
+  let x = 0;
+  while (x < binary.width) {
+    while (x < binary.width && colInk[x] < minInk) {
+      x += 1;
+    }
+    if (x >= binary.width) break;
+    const x1 = x;
+    while (x < binary.width && colInk[x] >= minInk) {
+      x += 1;
+    }
+    const x2 = x - 1;
+    if (x2 - x1 + 1 >= 2) {
+      runs.push({ x1, x2 });
+    }
+  }
+
+  const merged: Array<{ x1: number; x2: number }> = [];
+  for (const run of runs) {
+    const prev = merged[merged.length - 1];
+    if (prev && run.x1 - prev.x2 <= 2) {
+      prev.x2 = run.x2;
+    } else {
+      merged.push({ ...run });
+    }
+  }
+  return merged;
+}
+
+function cropRun(
+  binary: BinaryRegion,
+  run: { x1: number; x2: number },
+): BinaryRegion {
+  let y1 = binary.height;
+  let y2 = -1;
+  for (let y = 0; y < binary.height; y++) {
+    for (let x = run.x1; x <= run.x2; x++) {
+      if (binary.pixels[y * binary.width + x] === 1) {
+        if (y < y1) y1 = y;
+        if (y > y2) y2 = y;
+      }
+    }
+  }
+  if (y2 < y1) {
+    return { width: 1, height: 1, pixels: new Uint8Array([0]) };
+  }
+
+  const width = run.x2 - run.x1 + 1;
+  const height = y2 - y1 + 1;
+  const pixels = new Uint8Array(width * height);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      pixels[y * width + x] =
+        binary.pixels[(y1 + y) * binary.width + (run.x1 + x)];
+    }
+  }
+  return { width, height, pixels };
+}
+
+function recognizeDigitCandidatesWithAllowed(
+  binary: BinaryRegion,
+  allowedDigits: number[],
+  limit: number,
+): DigitCandidate[] {
+  return getDigitCandidates(binary)
+    .filter((candidate) => allowedDigits.includes(candidate.digit))
+    .slice(0, Math.max(1, limit));
 }
 
 function fallbackDigitFromRect(
@@ -951,39 +1590,65 @@ function fallbackDigitFromRect(
   };
 }
 
-function parseHintPair(image: ImageDataLike, hintRect: Rect): HintValuePair {
-  const gray = getGrayRegion(image, hintRect);
-  const dark = binaryFromGray(gray, 'dark');
-  const dist = binaryFromColorDistance(image, hintRect);
-  const mergedPixels = new Uint8Array(dark.pixels.length);
-  for (let i = 0; i < mergedPixels.length; i++) {
-    mergedPixels[i] = dark.pixels[i] | dist.pixels[i];
-  }
-  const ink = {
-    width: dark.width,
-    height: dark.height,
-    pixels: mergedPixels,
-  };
+function parseHintPairCandidates(
+  image: ImageDataLike,
+  hintRect: Rect,
+): HintPairCandidate[] {
+  const ink = buildDigitInkMask(image, hintRect);
 
-  const sumComponents = detectDigitComponentsInZone(ink, {
-    x1: 0.06,
+  const sumZone = cropBinaryByZone(ink, {
+    x1: 0.38,
     y1: 0.04,
-    x2: 0.94,
-    y2: 0.58,
-  }).sort((a, b) => a.x1 - b.x1);
+    x2: 0.97,
+    y2: 0.5,
+  });
+  const sumRuns = splitDigitRuns(sumZone).sort((a, b) => a.x1 - b.x1);
+  const sumCandidates: DigitCandidate[] = [];
+  if (sumRuns.length >= 2) {
+    const bestTwo = sumRuns
+      .map((run) => ({
+        run,
+        area: (run.x2 - run.x1 + 1) * sumZone.height,
+      }))
+      .sort((a, b) => b.area - a.area)
+      .slice(0, 2)
+      .map((entry) => entry.run)
+      .sort((a, b) => a.x1 - b.x1);
 
-  const sumDigitComponents = sumComponents.slice(-2);
-  const sumDigits = sumDigitComponents
-    .map((component) => digitFromComponent(ink, component))
-    .filter((result) => result.inkRatio >= 0.015 && result.score < 6.4)
-    .map((result) => result.digit);
+    const firstOptions = recognizeDigitCandidatesWithAllowed(
+      cropRun(sumZone, bestTwo[0]),
+      [0, 1],
+      2,
+    );
+    const secondOptions = recognizeDigitCandidatesWithAllowed(
+      cropRun(sumZone, bestTwo[1]),
+      [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+      3,
+    );
 
-  let sumText = '0';
-  if (sumDigits.length >= 2) {
-    const value = Number(`${sumDigits[0]}${sumDigits[1]}`);
-    sumText = String(value);
-  } else if (sumDigits.length === 1) {
-    sumText = String(sumDigits[0]);
+    for (const first of firstOptions) {
+      for (const second of secondOptions) {
+        const value = first.digit * 10 + second.digit;
+        if (value <= 15) {
+          sumCandidates.push({
+            digit: value,
+            score: first.score + second.score,
+          });
+        }
+      }
+    }
+
+    for (const second of secondOptions) {
+      sumCandidates.push({ digit: second.digit, score: second.score + 0.08 });
+    }
+  } else if (sumRuns.length === 1) {
+    sumCandidates.push(
+      ...recognizeDigitCandidatesWithAllowed(
+        cropRun(sumZone, sumRuns[0]),
+        [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+        3,
+      ),
+    );
   } else {
     const fallbackSumRect = subRect(hintRect, {
       x: 0.5,
@@ -991,20 +1656,32 @@ function parseHintPair(image: ImageDataLike, hintRect: Rect): HintValuePair {
       width: 0.35,
       height: 0.44,
     });
-    sumText = String(fallbackDigitFromRect(image, fallbackSumRect).digit);
+    const fallback = fallbackDigitFromRect(image, fallbackSumRect);
+    sumCandidates.push({ digit: fallback.digit, score: fallback.score + 0.2 });
   }
 
-  const voltorbCandidates = detectDigitComponentsInZone(ink, {
-    x1: 0.5,
-    y1: 0.56,
-    x2: 0.96,
-    y2: 0.98,
-  }).sort((a, b) => b.area - a.area);
+  const filteredSumCandidates = sumCandidates
+    .filter((candidate) => candidate.digit >= 0 && candidate.digit <= 15)
+    .sort((a, b) => a.score - b.score)
+    .slice(0, 4);
 
-  let voltorbText = '0';
-  if (voltorbCandidates.length > 0) {
-    const read = digitFromComponent(ink, voltorbCandidates[0]);
-    voltorbText = String(read.digit);
+  const voltorbZone = cropBinaryByZone(ink, {
+    x1: 0.72,
+    y1: 0.52,
+    x2: 0.98,
+    y2: 0.98,
+  });
+  const voltRuns = splitDigitRuns(voltorbZone);
+  const voltorbCandidates: DigitCandidate[] = [];
+  if (voltRuns.length > 0) {
+    const targetRun = voltRuns.sort((a, b) => b.x2 - b.x1 - (a.x2 - a.x1))[0];
+    voltorbCandidates.push(
+      ...recognizeDigitCandidatesWithAllowed(
+        cropRun(voltorbZone, targetRun),
+        [0, 1, 2, 3, 4, 5],
+        3,
+      ),
+    );
   } else {
     const fallbackVoltRect = subRect(hintRect, {
       x: 0.62,
@@ -1012,22 +1689,136 @@ function parseHintPair(image: ImageDataLike, hintRect: Rect): HintValuePair {
       width: 0.3,
       height: 0.32,
     });
-    voltorbText = String(fallbackDigitFromRect(image, fallbackVoltRect).digit);
+    const fallback = fallbackDigitFromRect(image, fallbackVoltRect);
+    voltorbCandidates.push({
+      digit: Math.max(0, Math.min(5, fallback.digit)),
+      score: fallback.score + 0.2,
+    });
   }
 
-  return [sumText, voltorbText];
+  const filteredVoltorbCandidates = voltorbCandidates
+    .filter((candidate) => candidate.digit >= 0 && candidate.digit <= 5)
+    .sort((a, b) => a.score - b.score)
+    .slice(0, 3);
+
+  const pairCandidates: HintPairCandidate[] = [];
+  for (const sum of filteredSumCandidates) {
+    for (const volt of filteredVoltorbCandidates) {
+      pairCandidates.push({
+        sum: sum.digit,
+        voltorb: volt.digit,
+        score: sum.score + volt.score,
+      });
+    }
+  }
+
+  if (pairCandidates.length === 0) {
+    return [{ sum: 0, voltorb: 0, score: 10 }];
+  }
+
+  pairCandidates.sort((a, b) => a.score - b.score);
+  return pairCandidates.slice(0, 6);
+}
+
+function chooseBestConsistentHints(
+  rowCandidates: HintPairCandidate[][],
+  colCandidates: HintPairCandidate[][],
+): { row: HintPairCandidate[]; col: HintPairCandidate[] } {
+  type Combo = {
+    picks: HintPairCandidate[];
+    sumTotal: number;
+    voltorbTotal: number;
+    score: number;
+  };
+
+  function enumerate(candidates: HintPairCandidate[][]): Combo[] {
+    const out: Combo[] = [];
+    function dfs(
+      index: number,
+      picks: HintPairCandidate[],
+      sumTotal: number,
+      voltorbTotal: number,
+      score: number,
+    ) {
+      if (index === candidates.length) {
+        out.push({ picks: [...picks], sumTotal, voltorbTotal, score });
+        return;
+      }
+
+      for (const candidate of candidates[index]) {
+        picks.push(candidate);
+        dfs(
+          index + 1,
+          picks,
+          sumTotal + candidate.sum,
+          voltorbTotal + candidate.voltorb,
+          score + candidate.score,
+        );
+        picks.pop();
+      }
+    }
+
+    dfs(0, [], 0, 0, 0);
+    return out;
+  }
+
+  const rowCombos = enumerate(rowCandidates.map((c) => c.slice(0, 3)));
+  const colCombos = enumerate(colCandidates.map((c) => c.slice(0, 3)));
+
+  let best: {
+    row: HintPairCandidate[];
+    col: HintPairCandidate[];
+    score: number;
+  } | null = null;
+
+  for (const rowCombo of rowCombos) {
+    for (const colCombo of colCombos) {
+      const totalPenalty =
+        Math.abs(rowCombo.sumTotal - colCombo.sumTotal) * 0.35 +
+        Math.abs(rowCombo.voltorbTotal - colCombo.voltorbTotal) * 0.8;
+      const score = rowCombo.score + colCombo.score + totalPenalty;
+      if (!best || score < best.score) {
+        best = { row: rowCombo.picks, col: colCombo.picks, score };
+      }
+    }
+  }
+
+  if (best) {
+    return { row: best.row, col: best.col };
+  }
+
+  return {
+    row: rowCandidates.map((c) => c[0] ?? { sum: 0, voltorb: 0, score: 10 }),
+    col: colCandidates.map((c) => c[0] ?? { sum: 0, voltorb: 0, score: 10 }),
+  };
 }
 
 export function extractHintsFromImageData(
   image: ImageDataLike,
 ): ExtractedHintValues {
-  const hintRects = selectHintRects(image);
+  const canonical = normalizeToCanonicalBoard(image);
+  const workingImage = canonical?.image ?? image;
+  const hintRects = canonical
+    ? {
+        rowHintRects: canonical.rowHintRects,
+        colHintRects: canonical.colHintRects,
+      }
+    : selectHintRects(image);
 
-  const rowHintValues = hintRects.rowHintRects.map((rect) =>
-    parseHintPair(image, rect),
+  const rowCandidateLists = hintRects.rowHintRects.map((rect) =>
+    parseHintPairCandidates(workingImage, rect),
   );
-  const colHintValues = hintRects.colHintRects.map((rect) =>
-    parseHintPair(image, rect),
+  const colCandidateLists = hintRects.colHintRects.map((rect) =>
+    parseHintPairCandidates(workingImage, rect),
+  );
+
+  const best = chooseBestConsistentHints(rowCandidateLists, colCandidateLists);
+
+  const rowHintValues = best.row.map(
+    (pair): HintValuePair => [String(pair.sum), String(pair.voltorb)],
+  );
+  const colHintValues = best.col.map(
+    (pair): HintValuePair => [String(pair.sum), String(pair.voltorb)],
   );
 
   return { rowHintValues, colHintValues };
