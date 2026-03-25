@@ -45,10 +45,12 @@ export function calculateCellStatistics(
   );
 
   // Step 2: Recommend cells with the highest expected value and safe probability
-  let maxSafeProb = Math.max(
+  const maxSafeProb = Math.max(
     ...unopenedCells.filter((c) => c.expectedValue >= 1).map((c) => c.safeProb),
   );
-  let maxExpectedValue = Math.max(...unopenedCells.map((c) => c.expectedValue));
+  const maxExpectedValue = Math.max(
+    ...unopenedCells.map((c) => c.expectedValue),
+  );
 
   for (const cell of stats) {
     if (originalBoard[cell.row][cell.col] !== null) {
