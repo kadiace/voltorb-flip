@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { PNG } from 'pngjs';
-import { extractHintsFromImageData } from '../../src/logic/extractHintsFromImage';
+import { extractHintsFromImageData } from '../src/logic/extractHintsFromImage';
 import { IMAGE_HINT_ANSWER_BY_FILE } from './answer';
 
 function countMatches(
@@ -39,7 +39,7 @@ function countMatches(
 }
 
 describe('extractHintsFromImageData', () => {
-  const sampleDirPath = join(__dirname, 'sample');
+  const sampleDirPath = resolve(__dirname, '..', 'src', 'assets', 'sample');
 
   it('extracts hints with at least 90% overall numeric similarity', () => {
     let matched = 0;
