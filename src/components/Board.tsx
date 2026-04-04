@@ -20,6 +20,8 @@ import refreshIcon from '../assets/icons/refresh.svg';
 import voltorbIcon from '../assets/icons/voltorb.png';
 
 const BOARD_SIZE = 5;
+const CELL_OPTION_VALUES = [0, 1, 2, 3] as const;
+const CANDIDATE_THRESHOLD = 1e-6;
 const DEBUG_ROW_HINT_VALUES: [string, string][] = [
   ['4', '2'],
   ['5', '3'],
@@ -40,12 +42,13 @@ export const Board: React.FC = () => {
   const [hintErrorMap, setHintErrorMap] = useState<{ [key: string]: boolean }>(
     {},
   );
+  const [boardState, setBoardState] = useState<BoardState>(
+    Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(null)),
+  );
+  const [boardHistory, setBoardHistory] = useState<BoardState[]>([]);
+  const [expandedCells, setExpandedCells] = useState<Set<string>>(new Set());
   const [analysis, setAnalysis] = useState<CellAnalysis[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedCell, setSelectedCell] = useState<{
-    row: number;
-    col: number;
-  }>({ row: 0, col: 0 });
   const [tooltip, setTooltip] = useState<{
     x: number;
     y: number;
@@ -55,9 +58,6 @@ export const Board: React.FC = () => {
   const [isDragOverPreview, setIsDragOverPreview] = useState(false);
   const [convertStatus, setConvertStatus] = useState<string>('');
 
-  const gameRefs = useRef<HTMLInputElement[][]>(
-    Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE)),
-  );
   const hintRowRefs = useRef<HTMLInputElement[][]>(
     Array.from({ length: BOARD_SIZE }, () => Array(2)),
   );
@@ -93,22 +93,6 @@ export const Board: React.FC = () => {
       if (voltInput) voltInput.value = DEBUG_COL_HINT_VALUES[i][1];
     });
   };
-
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Enter') {
-        if (selectedCell) {
-          const { row, col } = selectedCell;
-          gameRefs.current[row]?.[col]?.focus();
-        }
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [selectedCell]);
 
   useEffect(() => {
     const handlePaste = (e: ClipboardEvent) => {
@@ -149,22 +133,45 @@ export const Board: React.FC = () => {
         const result = analyzeBoard(boardState, hintState);
         setAnalysis(result);
         setIsLoading(false);
-        setSelectedCell({ row: 0, col: 0 });
       }, 100);
     }
-  }, [gameStarted, isLoading]);
+  }, [boardState, gameStarted, isLoading]);
 
   useLayoutEffect(() => {
     applyDebugInitialHints();
   }, []);
 
   const getCurrentBoardState = (): BoardState => {
-    return gameRefs.current.map((row) =>
-      row.map((cell) => {
-        const val = cell?.value;
-        return val ? Number(val) : null;
-      }),
+    return boardState.map((row) => [...row]);
+  };
+
+  const getCellKey = (row: number, col: number) => `${row}-${col}`;
+
+  const getRecommendedCell = (): { row: number; col: number } | null => {
+    if (!gameStarted || isLoading || analysis.length === 0) return null;
+
+    const unopenedCells = analysis.filter(
+      (cell) => boardState[cell.row][cell.col] === null,
     );
+    if (unopenedCells.length === 0) return null;
+
+    const minVoltorbProb = Math.min(
+      ...unopenedCells.map((cell) => cell.valueProbabilities[0]),
+    );
+    const safestCells = unopenedCells.filter(
+      (cell) =>
+        Math.abs(cell.valueProbabilities[0] - minVoltorbProb) <=
+        CANDIDATE_THRESHOLD,
+    );
+
+    let bestCell = safestCells[0];
+    for (const cell of safestCells) {
+      if (cell.expectedValue > bestCell.expectedValue) {
+        bestCell = cell;
+      }
+    }
+
+    return { row: bestCell.row, col: bestCell.col };
   };
 
   const getCurrentHint = (): HintBoard => {
@@ -184,16 +191,88 @@ export const Board: React.FC = () => {
     setIsLoading(true);
   };
 
-  const validateGameCell = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    if (/^[0-3]$/.test(val) || val === '') {
-      e.target.value = val;
-      updateAnalysisIfStarted();
-    } else {
-      e.preventDefault();
-      e.target.value = '';
-    }
+  const isCandidatePossible = (
+    cellAnalysis: CellAnalysis | undefined,
+    value: number,
+  ) => {
+    if (!cellAnalysis) return true;
+    return cellAnalysis.valueProbabilities[value] > CANDIDATE_THRESHOLD;
   };
+
+  const handleCellOptionClick = (row: number, col: number, value: number) => {
+    if (!gameStarted) return;
+    if (boardState[row][col] === value) return;
+
+    const snapshot = boardState.map((line) => [...line]);
+    setBoardHistory((prev) => [...prev, snapshot]);
+
+    setBoardState((prev) => {
+      const next = prev.map((line) => [...line]);
+      next[row][col] = value;
+      return next;
+    });
+
+    setExpandedCells((prev) => {
+      const next = new Set(prev);
+      next.delete(getCellKey(row, col));
+      return next;
+    });
+    setTooltip(null);
+    updateAnalysisIfStarted();
+  };
+
+  useEffect(() => {
+    const handleUndoKeyDown = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'z') return;
+      if (boardHistory.length === 0) return;
+
+      e.preventDefault();
+      const previousBoard = boardHistory[boardHistory.length - 1];
+      setBoardHistory((prev) => prev.slice(0, -1));
+      setBoardState(previousBoard.map((line) => [...line]));
+
+      if (gameStarted) {
+        setIsLoading(true);
+      }
+    };
+
+    window.addEventListener('keydown', handleUndoKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleUndoKeyDown);
+    };
+  }, [boardHistory, gameStarted]);
+
+  useEffect(() => {
+    if (!gameStarted || isLoading || analysis.length === 0) return;
+
+    let changed = false;
+    const nextBoard = boardState.map((line) => [...line]);
+
+    for (let row = 0; row < BOARD_SIZE; row++) {
+      for (let col = 0; col < BOARD_SIZE; col++) {
+        if (nextBoard[row][col] !== null) continue;
+
+        const cellAnalysis = analysis.find(
+          (a) => a.row === row && a.col === col,
+        );
+        if (!cellAnalysis) continue;
+
+        const candidates = [0, 1, 2, 3].filter((value) =>
+          isCandidatePossible(cellAnalysis, value),
+        );
+
+        if (candidates.length === 1) {
+          nextBoard[row][col] = candidates[0];
+          changed = true;
+        }
+      }
+    }
+
+    if (changed) {
+      setBoardState(nextBoard);
+      setIsLoading(true);
+    }
+  }, [analysis, boardState, gameStarted, isLoading]);
 
   const validateHintCell = (
     e: React.ChangeEvent<HTMLInputElement>,
@@ -240,9 +319,11 @@ export const Board: React.FC = () => {
       setIsLoading(true);
     } else {
       setAnalysis([]);
-      gameRefs.current.forEach((row) =>
-        row.forEach((cell) => cell && (cell.value = '')),
+      setBoardState(
+        Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(null)),
       );
+      setBoardHistory([]);
+      setExpandedCells(new Set());
     }
   };
 
@@ -250,10 +331,11 @@ export const Board: React.FC = () => {
     setGameStarted(false);
     setHintErrorMap({});
     setAnalysis([]);
-    setSelectedCell({ row: 0, col: 0 });
-    gameRefs.current.forEach((row) =>
-      row.forEach((cell) => cell && (cell.value = '')),
+    setBoardState(
+      Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(null)),
     );
+    setBoardHistory([]);
+    setExpandedCells(new Set());
     hintRowRefs.current.forEach((pair) =>
       pair.forEach((input) => input && (input.value = '')),
     );
@@ -261,31 +343,6 @@ export const Board: React.FC = () => {
       pair.forEach((input) => input && (input.value = '')),
     );
     applyDebugInitialHints();
-  };
-
-  const handleKeyDown = (
-    e: React.KeyboardEvent<HTMLInputElement>,
-    row: number,
-    col: number,
-  ) => {
-    const key = e.key;
-    if (key === 'Escape') {
-      e.currentTarget.blur();
-    } else if (key.startsWith('Arrow')) {
-      e.preventDefault();
-      let newRow = row;
-      let newCol = col;
-      if (key === 'ArrowUp') newRow = Math.max(0, row - 1);
-      if (key === 'ArrowDown') newRow = Math.min(BOARD_SIZE - 1, row + 1);
-      if (key === 'ArrowLeft') newCol = Math.max(0, col - 1);
-      if (key === 'ArrowRight') newCol = Math.min(BOARD_SIZE - 1, col + 1);
-      setSelectedCell({ row: newRow, col: newCol });
-      setTimeout(() => gameRefs.current[newRow][newCol]?.focus(), 0);
-    }
-  };
-
-  const handleOnClick = (row: number, col: number) => {
-    setSelectedCell({ row, col });
   };
 
   const handleMouseOver = (e: MouseEvent, row: number, col: number) => {
@@ -482,75 +539,142 @@ export const Board: React.FC = () => {
 
       <div className='board-panel pixel-border'>
         <div className='board-grid-fixed'>
-          {[...Array(BOARD_SIZE)].map((_, row) => (
-            <React.Fragment key={`row-${row}`}>
-              {[...Array(BOARD_SIZE)].map((_, col) => {
-                const cellAnalysis = analysis.find(
-                  (a) => a.row === row && a.col === col,
-                );
-                const risk =
-                  gameStarted && cellAnalysis ? cellAnalysis.riskLabel : '';
-                const isSelected =
-                  selectedCell?.row === row && selectedCell?.col === col;
+          {(() => {
+            const recommendedCell = getRecommendedCell();
 
-                return (
+            return [...Array(BOARD_SIZE)].map((_, row) => (
+              <React.Fragment key={`row-${row}`}>
+                {[...Array(BOARD_SIZE)].map((_, col) => {
+                  const cellAnalysis = analysis.find(
+                    (a) => a.row === row && a.col === col,
+                  );
+                  const fixedValue = boardState[row][col];
+                  const isRecommended =
+                    recommendedCell?.row === row &&
+                    recommendedCell?.col === col;
+                  const isExpanded = expandedCells.has(getCellKey(row, col));
+                  const showOptions =
+                    gameStarted &&
+                    fixedValue === null &&
+                    (isRecommended || isExpanded);
+
+                  return (
+                    <div
+                      key={`cell-${row}-${col}`}
+                      className={`cell game-cell-option-wrap ${
+                        fixedValue === 0 ? 'fixed-voltorb' : ''
+                      } ${
+                        gameStarted && fixedValue === null && !showOptions
+                          ? 'hidden-cell'
+                          : ''
+                      }`}
+                      style={{ gridColumn: col + 1, gridRow: row + 1 }}
+                      onMouseEnter={(e) => handleMouseOver(e, row, col)}
+                      onMouseLeave={() => setTooltip(null)}
+                      onClick={() => {
+                        if (
+                          gameStarted &&
+                          fixedValue === null &&
+                          !showOptions
+                        ) {
+                          setExpandedCells((prev) => {
+                            const next = new Set(prev);
+                            next.add(getCellKey(row, col));
+                            return next;
+                          });
+                        }
+                      }}
+                    >
+                      {fixedValue !== null ? (
+                        <div className='fixed-cell-value'>
+                          {fixedValue === 0 ? (
+                            <img
+                              src={voltorbIcon}
+                              className='fixed-cell-voltorb'
+                              alt=''
+                              aria-hidden='true'
+                            />
+                          ) : (
+                            fixedValue
+                          )}
+                        </div>
+                      ) : showOptions ? (
+                        <div className='cell-option-grid'>
+                          {CELL_OPTION_VALUES.map((value) => {
+                            const isPossible = isCandidatePossible(
+                              cellAnalysis,
+                              value,
+                            );
+
+                            return (
+                              <button
+                                key={`cell-${row}-${col}-value-${value}`}
+                                type='button'
+                                className='cell-option-button'
+                                style={{ opacity: isPossible ? 1 : 0.3 }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleCellOptionClick(row, col, value);
+                                }}
+                                disabled={!gameStarted || !isPossible}
+                                aria-label={`Set cell ${row + 1}, ${col + 1} to ${value === 0 ? 'Voltorb' : value}`}
+                              >
+                                {value === 0 ? (
+                                  <img
+                                    src={voltorbIcon}
+                                    className='cell-option-voltorb'
+                                    alt=''
+                                    aria-hidden='true'
+                                  />
+                                ) : (
+                                  value
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+                <div
+                  className='cell hint-slot'
+                  style={{ gridColumn: BOARD_SIZE + 1, gridRow: row + 1 }}
+                >
                   <input
-                    key={`cell-${row}-${col}`}
-                    type='text'
-                    inputMode='numeric'
-                    className={`cell game-cell ${risk} ${isSelected ? 'selected' : ''}`}
-                    maxLength={1}
-                    ref={(el) => {
-                      if (!gameRefs.current[row]) gameRefs.current[row] = [];
-                      gameRefs.current[row][col] = el!;
-                    }}
-                    disabled={!gameStarted}
-                    style={{ gridColumn: col + 1, gridRow: row + 1 }}
-                    onChange={validateGameCell}
-                    onKeyDown={(e) => handleKeyDown(e, row, col)}
-                    onClick={() => handleOnClick(row, col)}
-                    onMouseEnter={(e) => handleMouseOver(e, row, col)}
-                    onMouseLeave={() => setTooltip(null)}
-                  />
-                );
-              })}
-              <div
-                className='cell hint-slot'
-                style={{ gridColumn: BOARD_SIZE + 1, gridRow: row + 1 }}
-              >
-                <input
-                  className={`hint-input ${hintErrorMap[`row-${row}-0`] ? 'error' : ''}`}
-                  placeholder='S'
-                  ref={(el) => {
-                    if (!hintRowRefs.current[row])
-                      hintRowRefs.current[row] = [];
-                    hintRowRefs.current[row][0] = el!;
-                  }}
-                  disabled={gameStarted}
-                  onChange={(e) => validateHintCell(e, 'sum')}
-                />
-                <div className='hint-volt-row'>
-                  <img
-                    src={voltorbIcon}
-                    className='hint-voltorb-icon'
-                    alt=''
-                    aria-hidden='true'
-                  />
-                  <input
-                    className={`hint-input ${hintErrorMap[`row-${row}-1`] ? 'error' : ''}`}
-                    placeholder='V'
+                    className={`hint-input ${hintErrorMap[`row-${row}-0`] ? 'error' : ''}`}
+                    placeholder='S'
                     ref={(el) => {
                       if (!hintRowRefs.current[row])
                         hintRowRefs.current[row] = [];
-                      hintRowRefs.current[row][1] = el!;
+                      hintRowRefs.current[row][0] = el!;
                     }}
                     disabled={gameStarted}
-                    onChange={(e) => validateHintCell(e, 'volt')}
+                    onChange={(e) => validateHintCell(e, 'sum')}
                   />
+                  <div className='hint-volt-row'>
+                    <img
+                      src={voltorbIcon}
+                      className='hint-voltorb-icon'
+                      alt=''
+                      aria-hidden='true'
+                    />
+                    <input
+                      className={`hint-input ${hintErrorMap[`row-${row}-1`] ? 'error' : ''}`}
+                      placeholder='V'
+                      ref={(el) => {
+                        if (!hintRowRefs.current[row])
+                          hintRowRefs.current[row] = [];
+                        hintRowRefs.current[row][1] = el!;
+                      }}
+                      disabled={gameStarted}
+                      onChange={(e) => validateHintCell(e, 'volt')}
+                    />
+                  </div>
                 </div>
-              </div>
-            </React.Fragment>
-          ))}
+              </React.Fragment>
+            ));
+          })()}
 
           {[...Array(BOARD_SIZE)].map((_, col) => (
             <div

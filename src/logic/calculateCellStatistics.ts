@@ -1,9 +1,6 @@
 import { BoardState, CellAnalysis } from './recommendation';
 
-export function calculateCellStatistics(
-  boards: BoardState[],
-  originalBoard: BoardState,
-): CellAnalysis[] {
+export function calculateCellStatistics(boards: BoardState[]): CellAnalysis[] {
   const BOARD_SIZE = 5;
   const totalBoards = boards.length;
   const stats: CellAnalysis[] = [];
@@ -43,61 +40,7 @@ export function calculateCellStatistics(
         safeProb,
         expectedValue,
         valueProbabilities,
-        riskLabel: 'mid',
       });
-    }
-  }
-
-  const unopenedCells = stats.filter(
-    (c) =>
-      originalBoard[c.row][c.col] === null &&
-      c.safeProb !== 0 &&
-      c.expectedValue > 0,
-  );
-
-  // Step 1: Recommend 100% safe cellss
-  const fullSafeCells = unopenedCells.filter(
-    (c) => Math.abs(c.safeProb - 1) < 1e-3,
-  );
-
-  // Step 2: Recommend cells with the highest expected value and safe probability
-  const maxSafeProb = Math.max(
-    ...unopenedCells.filter((c) => c.expectedValue >= 1).map((c) => c.safeProb),
-  );
-  const maxExpectedValue = Math.max(
-    ...unopenedCells.map((c) => c.expectedValue),
-  );
-
-  for (const cell of stats) {
-    if (originalBoard[cell.row][cell.col] !== null) {
-      // Opened cell
-      if (originalBoard[cell.row][cell.col] === 0) {
-        cell.riskLabel = 'voltorb';
-      } else {
-        cell.riskLabel = 'recommend';
-      }
-      continue;
-    }
-
-    if (cell.safeProb === 0 || cell.expectedValue < 1.0) {
-      cell.riskLabel = 'voltorb';
-    } else if (fullSafeCells.length > 0) {
-      if (
-        fullSafeCells.some(
-          (safeCell) => safeCell.row === cell.row && safeCell.col === cell.col,
-        )
-      ) {
-        cell.riskLabel = 'recommend';
-      } else {
-        cell.riskLabel = 'mid';
-      }
-    } else if (
-      Math.abs(cell.safeProb - maxSafeProb) < 1e-3 ||
-      Math.abs(cell.expectedValue - maxExpectedValue) < 1e-3
-    ) {
-      cell.riskLabel = 'recommend';
-    } else {
-      cell.riskLabel = 'mid';
     }
   }
 
