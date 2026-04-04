@@ -1,5 +1,10 @@
 .board-wrapper {
   --grid-preview-size: 428px;
+  --board-cell-size: 56px;
+  --board-cell-gap: 6px;
+  --board-double-cell-width: calc(
+    var(--board-cell-size) * 2 + var(--board-cell-gap)
+  );
   width: min(100%, 980px);
   display: flex;
   flex-direction: column;
@@ -200,14 +205,14 @@
 .board-grid-fixed {
   position: relative;
   display: grid;
-  grid-template-columns: repeat(7, 56px);
-  grid-template-rows: repeat(7, 56px);
-  gap: 6px;
+  grid-template-columns: repeat(7, var(--board-cell-size));
+  grid-template-rows: repeat(7, var(--board-cell-size));
+  gap: var(--board-cell-gap);
 }
 
 .cell {
-  width: 56px;
-  height: 56px;
+  width: var(--board-cell-size);
+  height: var(--board-cell-size);
   display: flex;
   justify-content: center;
   align-items: center;
@@ -291,6 +296,21 @@
   justify-content: center;
 }
 
+.grid-action-button {
+  width: var(--board-double-cell-width);
+  height: var(--board-cell-size);
+  min-width: 0;
+  padding: 0.3rem 0.4rem;
+  border-width: 3px;
+  font-size: 0.4rem;
+  line-height: 1.2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  justify-self: center;
+  align-self: center;
+}
+
 .control-button {
   padding: 0.8rem 1rem;
   border: 4px solid #0c1422;
@@ -301,6 +321,13 @@
   letter-spacing: 0.03em;
   text-transform: uppercase;
   min-width: 180px;
+}
+
+.control-button.grid-action-button {
+  width: var(--board-double-cell-width);
+  min-width: var(--board-double-cell-width);
+  max-width: var(--board-double-cell-width);
+  height: var(--board-cell-size);
 }
 
 .start-button {
@@ -349,17 +376,6 @@
 @media (max-width: 900px) {
   .board-wrapper {
     --grid-preview-size: 366px;
-  }
-
-  .board-grid-fixed {
-    grid-template-columns: repeat(7, 48px);
-    grid-template-rows: repeat(7, 48px);
-    gap: 5px;
-  }
-
-  .cell {
-    width: 48px;
-    height: 48px;
   }
 
   .hint-input {
@@ -414,17 +430,6 @@
     padding: 0.6rem;
   }
 
-  .board-grid-fixed {
-    grid-template-columns: repeat(7, 40px);
-    grid-template-rows: repeat(7, 40px);
-    gap: 4px;
-  }
-
-  .cell {
-    width: 40px;
-    height: 40px;
-  }
-
   .game-cell {
     border-width: 3px;
     font-size: 0.78rem;
@@ -440,6 +445,15 @@
   .control-button {
     min-width: 150px;
     font-size: 0.54rem;
+  }
+
+  .control-button.grid-action-button {
+    min-width: var(--board-double-cell-width);
+  }
+
+  .grid-action-button {
+    font-size: 0.34rem;
+    border-width: 2px;
   }
 
   .convert-button {

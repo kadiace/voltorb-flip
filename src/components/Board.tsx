@@ -558,23 +558,23 @@ export const Board: React.FC = () => {
             </React.Fragment>
           ))}
 
+          <button
+            onClick={handleStartClick}
+            className='control-button start-button pixel-button grid-action-button'
+            style={{ gridColumn: '6 / span 2', gridRow: 6 }}
+          >
+            {gameStarted ? '⏹ Stop' : '▶ Start'}
+          </button>
+          <button
+            onClick={handleRefreshClick}
+            className='control-button refresh-button pixel-button grid-action-button'
+            style={{ gridColumn: '6 / span 2', gridRow: 7 }}
+          >
+            🔄 Refresh
+          </button>
+
           {isLoading && <div className='loader' title='Analyzing board...' />}
         </div>
-      </div>
-
-      <div className='button-row'>
-        <button
-          onClick={handleStartClick}
-          className='control-button start-button pixel-button'
-        >
-          {gameStarted ? '⏹ Stop' : '▶ Start'}
-        </button>
-        <button
-          onClick={handleRefreshClick}
-          className='control-button refresh-button pixel-button'
-        >
-          🔄 Refresh
-        </button>
       </div>
       <div className='board-help'>
         Top number: row/column sum | Bottom number: Voltorb count
