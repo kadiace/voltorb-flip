@@ -47,8 +47,7 @@ export const Board: React.FC = () => {
   const [tooltip, setTooltip] = useState<{
     x: number;
     y: number;
-    expectedValue: number;
-    safeProb: number;
+    valueProbabilities: [number, number, number, number];
   } | null>(null);
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
   const [isDragOverPreview, setIsDragOverPreview] = useState(false);
@@ -288,16 +287,18 @@ export const Board: React.FC = () => {
   };
 
   const handleMouseOver = (e: MouseEvent, row: number, col: number) => {
-    if (analysis) {
-      const rect = e.currentTarget.getBoundingClientRect();
-      const cellAnalysis = analysis.find((a) => a.row === row && a.col === col);
-      setTooltip({
-        x: rect.left + rect.width + 10,
-        y: rect.top,
-        expectedValue: cellAnalysis!.expectedValue,
-        safeProb: cellAnalysis!.safeProb,
-      });
+    const rect = e.currentTarget.getBoundingClientRect();
+    const cellAnalysis = analysis.find((a) => a.row === row && a.col === col);
+    if (!cellAnalysis) {
+      setTooltip(null);
+      return;
     }
+
+    setTooltip({
+      x: rect.left + rect.width + 10,
+      y: rect.top,
+      valueProbabilities: cellAnalysis.valueProbabilities,
+    });
   };
 
   const handleImageUploadChange = (e: React.ChangeEvent<HTMLInputElement>) => {

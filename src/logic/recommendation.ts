@@ -6,6 +6,7 @@ export type CellAnalysis = {
   col: number;
   safeProb: number; // 0.0 ~ 1.0
   expectedValue: number;
+  valueProbabilities: [number, number, number, number]; // [P(0), P(1), P(2), P(3)]
   riskLabel: 'recommend' | 'mid' | 'voltorb';
 };
 
