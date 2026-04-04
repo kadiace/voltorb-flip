@@ -15,39 +15,47 @@ export type HintBoard = {
 };
 
 export type BoardState = (number | null)[][]; // 5x5, null for empty cells
+export type CandidateBoard = BoardState;
 
-export function analyzeBoard(
+export type AnalyzeResult = {
+  stats: CellAnalysis[];
+  candidateBoards: CandidateBoard[];
+};
+
+export function analyzeBoardWithCandidates(
   board: BoardState,
   hints: HintBoard,
-): CellAnalysis[] {
+): AnalyzeResult {
   const BOARD_SIZE = 5;
 
-  // Step 1: Generate row candidates
   const rowCandidates: number[][][] = [];
 
   for (let row = 0; row < BOARD_SIZE; row++) {
     const [rowSum, rowVolt] = hints.rowHints[row];
-
-    // Set fixed cells
     const fixed = board[row];
 
     const candidates = generateRowCandidatesWithFixed(rowSum, rowVolt, fixed);
     rowCandidates.push(candidates);
   }
 
-  // Step 2: Generate all possible boards
   const allBoards = generateAllBoards(rowCandidates, hints);
 
-  // Filter out invalid boards
   if (allBoards.length === 0) {
     console.warn('No valid board combinations found.');
-    return [];
+    return { stats: [], candidateBoards: [] };
   }
 
-  // Step 3: Calculate expected values and safe probabilities per each cell
-  const stats = calculateCellStatistics(allBoards);
+  return {
+    stats: calculateCellStatistics(allBoards),
+    candidateBoards: allBoards,
+  };
+}
 
-  return stats;
+export function analyzeBoard(
+  board: BoardState,
+  hints: HintBoard,
+): CellAnalysis[] {
+  return analyzeBoardWithCandidates(board, hints).stats;
 }
 
 function generateRowCandidatesWithFixed(

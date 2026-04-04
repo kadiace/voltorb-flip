@@ -9,19 +9,25 @@ import React, {
 } from 'react';
 import './Board.css';
 import {
-  analyzeBoard,
+  analyzeBoardWithCandidates,
   BoardState,
+  CandidateBoard,
   HintBoard,
   CellAnalysis,
 } from '../logic/recommendation';
 import { extractHintsFromImageBitmap } from '../logic/extractHintsFromImage';
 import { CellTooltip } from './CellTooltip';
-import refreshIcon from '../assets/icons/refresh.svg';
 import voltorbIcon from '../assets/icons/voltorb.png';
+import { calculateCellStatistics } from '../logic/calculateCellStatistics';
 
 const BOARD_SIZE = 5;
 const CELL_OPTION_VALUES = [0, 1, 2, 3] as const;
 const CANDIDATE_THRESHOLD = 1e-6;
+type UserActionSnapshot = {
+  boardState: BoardState;
+  expandedCells: Set<string>;
+  requiresReanalysis: boolean;
+};
 const DEBUG_ROW_HINT_VALUES: [string, string][] = [
   ['4', '2'],
   ['5', '3'],
@@ -45,8 +51,11 @@ export const Board: React.FC = () => {
   const [boardState, setBoardState] = useState<BoardState>(
     Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(null)),
   );
-  const [boardHistory, setBoardHistory] = useState<BoardState[]>([]);
+  const [boardHistory, setBoardHistory] = useState<UserActionSnapshot[]>([]);
   const [expandedCells, setExpandedCells] = useState<Set<string>>(new Set());
+  const [allCandidateBoards, setAllCandidateBoards] = useState<
+    CandidateBoard[]
+  >([]);
   const [analysis, setAnalysis] = useState<CellAnalysis[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [tooltip, setTooltip] = useState<{
@@ -125,17 +134,34 @@ export const Board: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    // Analyzing the board when game starts
     if (gameStarted && isLoading) {
       setTimeout(() => {
-        const boardState = getCurrentBoardState();
+        const currentBoardState = getCurrentBoardState();
         const hintState = getCurrentHint();
-        const result = analyzeBoard(boardState, hintState);
-        setAnalysis(result);
+
+        if (allCandidateBoards.length === 0) {
+          const initialResult = analyzeBoardWithCandidates(
+            currentBoardState,
+            hintState,
+          );
+          setAllCandidateBoards(initialResult.candidateBoards);
+          setAnalysis(initialResult.stats);
+        } else {
+          const filteredBoards = filterBoardsByFixedCells(
+            allCandidateBoards,
+            currentBoardState,
+          );
+          setAnalysis(
+            filteredBoards.length > 0
+              ? calculateCellStatistics(filteredBoards)
+              : [],
+          );
+        }
+
         setIsLoading(false);
       }, 100);
     }
-  }, [boardState, gameStarted, isLoading]);
+  }, [allCandidateBoards, boardState, gameStarted, isLoading]);
 
   useLayoutEffect(() => {
     applyDebugInitialHints();
@@ -146,6 +172,31 @@ export const Board: React.FC = () => {
   };
 
   const getCellKey = (row: number, col: number) => `${row}-${col}`;
+
+  const snapshotCurrentState = (
+    requiresReanalysis: boolean,
+  ): UserActionSnapshot => ({
+    boardState: boardState.map((line) => [...line]),
+    expandedCells: new Set(expandedCells),
+    requiresReanalysis,
+  });
+
+  const filterBoardsByFixedCells = (
+    boards: CandidateBoard[],
+    fixedBoard: BoardState,
+  ): CandidateBoard[] => {
+    return boards.filter((candidate) => {
+      for (let row = 0; row < BOARD_SIZE; row++) {
+        for (let col = 0; col < BOARD_SIZE; col++) {
+          const fixedValue = fixedBoard[row][col];
+          if (fixedValue !== null && candidate[row][col] !== fixedValue) {
+            return false;
+          }
+        }
+      }
+      return true;
+    });
+  };
 
   const getRecommendedCell = (): { row: number; col: number } | null => {
     if (!gameStarted || isLoading || analysis.length === 0) return null;
@@ -203,8 +254,7 @@ export const Board: React.FC = () => {
     if (!gameStarted) return;
     if (boardState[row][col] === value) return;
 
-    const snapshot = boardState.map((line) => [...line]);
-    setBoardHistory((prev) => [...prev, snapshot]);
+    setBoardHistory((prev) => [...prev, snapshotCurrentState(true)]);
 
     setBoardState((prev) => {
       const next = prev.map((line) => [...line]);
@@ -221,26 +271,37 @@ export const Board: React.FC = () => {
     updateAnalysisIfStarted();
   };
 
+  const performUndo = useCallback(() => {
+    if (boardHistory.length === 0) return false;
+
+    const previousState = boardHistory[boardHistory.length - 1];
+    setBoardHistory((prev) => prev.slice(0, -1));
+    setBoardState(previousState.boardState.map((line) => [...line]));
+    setExpandedCells(new Set(previousState.expandedCells));
+
+    if (gameStarted && previousState.requiresReanalysis) {
+      setIsLoading(true);
+    }
+
+    return true;
+  }, [boardHistory, gameStarted]);
+
+  const handleUndoClick = () => {
+    performUndo();
+  };
+
   useEffect(() => {
     const handleUndoKeyDown = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'z') return;
-      if (boardHistory.length === 0) return;
-
-      e.preventDefault();
-      const previousBoard = boardHistory[boardHistory.length - 1];
-      setBoardHistory((prev) => prev.slice(0, -1));
-      setBoardState(previousBoard.map((line) => [...line]));
-
-      if (gameStarted) {
-        setIsLoading(true);
-      }
+      const didUndo = performUndo();
+      if (didUndo) e.preventDefault();
     };
 
     window.addEventListener('keydown', handleUndoKeyDown);
     return () => {
       window.removeEventListener('keydown', handleUndoKeyDown);
     };
-  }, [boardHistory, gameStarted]);
+  }, [performUndo]);
 
   useEffect(() => {
     if (!gameStarted || isLoading || analysis.length === 0) return;
@@ -316,33 +377,17 @@ export const Board: React.FC = () => {
     setGameStarted(nextState);
 
     if (nextState) {
+      setAllCandidateBoards([]);
       setIsLoading(true);
     } else {
       setAnalysis([]);
+      setAllCandidateBoards([]);
       setBoardState(
         Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(null)),
       );
       setBoardHistory([]);
       setExpandedCells(new Set());
     }
-  };
-
-  const handleRefreshClick = () => {
-    setGameStarted(false);
-    setHintErrorMap({});
-    setAnalysis([]);
-    setBoardState(
-      Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(null)),
-    );
-    setBoardHistory([]);
-    setExpandedCells(new Set());
-    hintRowRefs.current.forEach((pair) =>
-      pair.forEach((input) => input && (input.value = '')),
-    );
-    hintColRefs.current.forEach((pair) =>
-      pair.forEach((input) => input && (input.value = '')),
-    );
-    applyDebugInitialHints();
   };
 
   const handleMouseOver = (e: MouseEvent, row: number, col: number) => {
@@ -577,6 +622,10 @@ export const Board: React.FC = () => {
                           fixedValue === null &&
                           !showOptions
                         ) {
+                          setBoardHistory((prev) => [
+                            ...prev,
+                            snapshotCurrentState(false),
+                          ]);
                           setExpandedCells((prev) => {
                             const next = new Set(prev);
                             next.add(getCellKey(row, col));
@@ -728,16 +777,14 @@ export const Board: React.FC = () => {
               </span>
             </button>
             <button
-              onClick={handleRefreshClick}
-              className='control-button refresh-button pixel-button grid-action-button'
-              aria-label='Refresh board'
+              onClick={handleUndoClick}
+              className='control-button undo-button pixel-button grid-action-button'
+              aria-label='Undo last action'
+              disabled={boardHistory.length === 0}
             >
-              <img
-                src={refreshIcon}
-                className='refresh-icon-image'
-                alt=''
-                aria-hidden='true'
-              />
+              <span className='undo-icon' aria-hidden='true'>
+                ⬅
+              </span>
             </button>
           </div>
 

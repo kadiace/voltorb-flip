@@ -380,13 +380,12 @@
   isolation: isolate;
 }
 
-.refresh-icon-image {
-  width: clamp(10px, calc(var(--board-cell-size) * 0.22), 16px);
-  height: clamp(10px, calc(var(--board-cell-size) * 0.22), 16px);
-  image-rendering: pixelated;
-  image-rendering: crisp-edges;
-  filter: brightness(0) invert(1);
-  display: block;
+.undo-icon {
+  font-size: clamp(0.72rem, calc(var(--board-cell-size) * 0.25), 1.18rem);
+  font-weight: 800;
+  line-height: 1;
+  display: inline-block;
+  transform: translateY(-1.5px);
 }
 
 .control-button.grid-action-button {
@@ -451,7 +450,7 @@
   transform: translate(1px, -2.5px);
 }
 
-.refresh-button {
+.undo-button {
   background: linear-gradient(180deg, var(--accent-red), #93313f);
 }
 
