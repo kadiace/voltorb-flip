@@ -414,7 +414,7 @@ export const Board: React.FC = () => {
       <div className='image-preview-shell'>
         <div className='image-preview-panel pixel-border'>
           <div
-            className={`image-preview-frame ${isDragOverPreview ? 'drag-over' : ''}`}
+            className={`image-preview-frame ${uploadedImage ? 'has-image' : 'is-empty'} ${isDragOverPreview ? 'drag-over' : ''}`}
             onDragOver={handlePreviewDragOver}
             onDragEnter={handlePreviewDragOver}
             onDragLeave={handlePreviewDragLeave}
