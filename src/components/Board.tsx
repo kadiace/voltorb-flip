@@ -198,13 +198,13 @@ export const Board: React.FC = () => {
     });
   };
 
-  const getRecommendedCell = (): { row: number; col: number } | null => {
-    if (!gameStarted || isLoading || analysis.length === 0) return null;
+  const getRecommendedCellKeys = (): Set<string> => {
+    if (!gameStarted || isLoading || analysis.length === 0) return new Set();
 
     const unopenedCells = analysis.filter(
       (cell) => boardState[cell.row][cell.col] === null,
     );
-    if (unopenedCells.length === 0) return null;
+    if (unopenedCells.length === 0) return new Set();
 
     const minVoltorbProb = Math.min(
       ...unopenedCells.map((cell) => cell.valueProbabilities[0]),
@@ -215,14 +215,19 @@ export const Board: React.FC = () => {
         CANDIDATE_THRESHOLD,
     );
 
-    let bestCell = safestCells[0];
-    for (const cell of safestCells) {
-      if (cell.expectedValue > bestCell.expectedValue) {
-        bestCell = cell;
-      }
-    }
+    const maxExpectedValue = Math.max(
+      ...safestCells.map((cell) => cell.expectedValue),
+    );
 
-    return { row: bestCell.row, col: bestCell.col };
+    return new Set(
+      safestCells
+        .filter(
+          (cell) =>
+            Math.abs(cell.expectedValue - maxExpectedValue) <=
+            CANDIDATE_THRESHOLD,
+        )
+        .map((cell) => getCellKey(cell.row, cell.col)),
+    );
   };
 
   const getCurrentHint = (): HintBoard => {
@@ -585,7 +590,7 @@ export const Board: React.FC = () => {
       <div className='board-panel pixel-border'>
         <div className='board-grid-fixed'>
           {(() => {
-            const recommendedCell = getRecommendedCell();
+            const recommendedCellKeys = getRecommendedCellKeys();
 
             return [...Array(BOARD_SIZE)].map((_, row) => (
               <React.Fragment key={`row-${row}`}>
@@ -594,9 +599,9 @@ export const Board: React.FC = () => {
                     (a) => a.row === row && a.col === col,
                   );
                   const fixedValue = boardState[row][col];
-                  const isRecommended =
-                    recommendedCell?.row === row &&
-                    recommendedCell?.col === col;
+                  const isRecommended = recommendedCellKeys.has(
+                    getCellKey(row, col),
+                  );
                   const isExpanded = expandedCells.has(getCellKey(row, col));
                   const showOptions =
                     gameStarted &&
