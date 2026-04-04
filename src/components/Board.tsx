@@ -16,6 +16,8 @@ import {
 } from '../logic/recommendation';
 import { extractHintsFromImageBitmap } from '../logic/extractHintsFromImage';
 import { CellTooltip } from './CellTooltip';
+import refreshIcon from '../assets/icons/refresh.svg';
+import voltorbIcon from '../assets/icons/voltorb.png';
 
 const BOARD_SIZE = 5;
 const DEBUG_ROW_HINT_VALUES: [string, string][] = [
@@ -512,66 +514,108 @@ export const Board: React.FC = () => {
                   />
                 );
               })}
-              {[0, 1].map((i) => {
-                const errorKey = `row-${row}-${i}`;
-                const type = i === 0 ? 'sum' : 'volt';
-                return (
+              <div
+                className='cell hint-slot'
+                style={{ gridColumn: BOARD_SIZE + 1, gridRow: row + 1 }}
+              >
+                <input
+                  className={`hint-input ${hintErrorMap[`row-${row}-0`] ? 'error' : ''}`}
+                  placeholder='S'
+                  ref={(el) => {
+                    if (!hintRowRefs.current[row])
+                      hintRowRefs.current[row] = [];
+                    hintRowRefs.current[row][0] = el!;
+                  }}
+                  disabled={gameStarted}
+                  onChange={(e) => validateHintCell(e, 'sum')}
+                />
+                <div className='hint-volt-row'>
+                  <img
+                    src={voltorbIcon}
+                    className='hint-voltorb-icon'
+                    alt=''
+                    aria-hidden='true'
+                  />
                   <input
-                    key={`hint-row-${row}-${i}`}
-                    className={`cell hint-input ${hintErrorMap[errorKey] ? 'error' : ''}`}
-                    placeholder={i === 0 ? 'S' : 'V'}
+                    className={`hint-input ${hintErrorMap[`row-${row}-1`] ? 'error' : ''}`}
+                    placeholder='V'
                     ref={(el) => {
                       if (!hintRowRefs.current[row])
                         hintRowRefs.current[row] = [];
-                      hintRowRefs.current[row][i] = el!;
+                      hintRowRefs.current[row][1] = el!;
                     }}
                     disabled={gameStarted}
-                    style={{ gridColumn: BOARD_SIZE + i + 1, gridRow: row + 1 }}
-                    onChange={(e) => validateHintCell(e, type)}
+                    onChange={(e) => validateHintCell(e, 'volt')}
                   />
-                );
-              })}
+                </div>
+              </div>
             </React.Fragment>
           ))}
 
           {[...Array(BOARD_SIZE)].map((_, col) => (
-            <React.Fragment key={`col-hint-${col}`}>
-              {[0, 1].map((i) => {
-                const errorKey = `col-${col}-${i}`;
-                const type = i === 0 ? 'sum' : 'volt';
-                return (
-                  <input
-                    key={`hint-col-${col}-${i}`}
-                    className={`cell hint-input ${hintErrorMap[errorKey] ? 'error' : ''}`}
-                    placeholder={i === 0 ? 'S' : 'V'}
-                    ref={(el) => {
-                      if (!hintColRefs.current[col])
-                        hintColRefs.current[col] = [];
-                      hintColRefs.current[col][i] = el!;
-                    }}
-                    disabled={gameStarted}
-                    style={{ gridColumn: col + 1, gridRow: BOARD_SIZE + i + 1 }}
-                    onChange={(e) => validateHintCell(e, type)}
-                  />
-                );
-              })}
-            </React.Fragment>
+            <div
+              key={`col-hint-${col}`}
+              className='cell hint-slot'
+              style={{ gridColumn: col + 1, gridRow: BOARD_SIZE + 1 }}
+            >
+              <input
+                className={`hint-input ${hintErrorMap[`col-${col}-0`] ? 'error' : ''}`}
+                placeholder='S'
+                ref={(el) => {
+                  if (!hintColRefs.current[col]) hintColRefs.current[col] = [];
+                  hintColRefs.current[col][0] = el!;
+                }}
+                disabled={gameStarted}
+                onChange={(e) => validateHintCell(e, 'sum')}
+              />
+              <div className='hint-volt-row'>
+                <img
+                  src={voltorbIcon}
+                  className='hint-voltorb-icon'
+                  alt=''
+                  aria-hidden='true'
+                />
+                <input
+                  className={`hint-input ${hintErrorMap[`col-${col}-1`] ? 'error' : ''}`}
+                  placeholder='V'
+                  ref={(el) => {
+                    if (!hintColRefs.current[col])
+                      hintColRefs.current[col] = [];
+                    hintColRefs.current[col][1] = el!;
+                  }}
+                  disabled={gameStarted}
+                  onChange={(e) => validateHintCell(e, 'volt')}
+                />
+              </div>
+            </div>
           ))}
 
-          <button
-            onClick={handleStartClick}
-            className='control-button start-button pixel-button grid-action-button'
-            style={{ gridColumn: '6 / span 2', gridRow: 6 }}
+          <div
+            className='cell grid-action-slot'
+            style={{ gridColumn: BOARD_SIZE + 1, gridRow: BOARD_SIZE + 1 }}
           >
-            {gameStarted ? '⏹ Stop' : '▶ Start'}
-          </button>
-          <button
-            onClick={handleRefreshClick}
-            className='control-button refresh-button pixel-button grid-action-button'
-            style={{ gridColumn: '6 / span 2', gridRow: 7 }}
-          >
-            🔄 Refresh
-          </button>
+            <button
+              onClick={handleStartClick}
+              className='control-button start-button pixel-button grid-action-button'
+              aria-label={gameStarted ? 'Stop game' : 'Start game'}
+            >
+              <span className='start-symbol' aria-hidden='true'>
+                {gameStarted ? '⏹' : '▶'}
+              </span>
+            </button>
+            <button
+              onClick={handleRefreshClick}
+              className='control-button refresh-button pixel-button grid-action-button'
+              aria-label='Refresh board'
+            >
+              <img
+                src={refreshIcon}
+                className='refresh-icon-image'
+                alt=''
+                aria-hidden='true'
+              />
+            </button>
+          </div>
 
           {isLoading && <div className='loader' title='Analyzing board...' />}
         </div>
