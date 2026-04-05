@@ -228,6 +228,11 @@
   box-sizing: border-box;
 }
 
+.game-cell-option-wrap.show-options {
+  background: #9f7e2a;
+  border-color: #7d661f;
+}
+
 .game-cell-option-wrap.hidden-cell {
   background: linear-gradient(180deg, #263248, #1a2232);
   border-color: #1a2232;

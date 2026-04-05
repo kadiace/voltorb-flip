@@ -136,7 +136,7 @@ export const Board: React.FC = () => {
   useEffect(() => {
     if (gameStarted && isLoading) {
       setTimeout(() => {
-        const currentBoardState = getCurrentBoardState();
+        const currentBoardState = boardState.map((row) => [...row]);
         const hintState = getCurrentHint();
 
         if (allCandidateBoards.length === 0) {
@@ -166,10 +166,6 @@ export const Board: React.FC = () => {
   useLayoutEffect(() => {
     applyDebugInitialHints();
   }, []);
-
-  const getCurrentBoardState = (): BoardState => {
-    return boardState.map((row) => [...row]);
-  };
 
   const getCellKey = (row: number, col: number) => `${row}-${col}`;
 
@@ -206,10 +202,20 @@ export const Board: React.FC = () => {
     );
     if (unopenedCells.length === 0) return new Set();
 
+    const recommendableCells = unopenedCells.filter((cell) => {
+      const hasOne = cell.valueProbabilities[1] > CANDIDATE_THRESHOLD;
+      const hasTwo = cell.valueProbabilities[2] > CANDIDATE_THRESHOLD;
+      const hasThree = cell.valueProbabilities[3] > CANDIDATE_THRESHOLD;
+
+      return !(hasOne && !hasTwo && !hasThree);
+    });
+
+    if (recommendableCells.length === 0) return new Set();
+
     const minVoltorbProb = Math.min(
-      ...unopenedCells.map((cell) => cell.valueProbabilities[0]),
+      ...recommendableCells.map((cell) => cell.valueProbabilities[0]),
     );
-    const safestCells = unopenedCells.filter(
+    const safestCells = recommendableCells.filter(
       (cell) =>
         Math.abs(cell.valueProbabilities[0] - minVoltorbProb) <=
         CANDIDATE_THRESHOLD,
@@ -613,7 +619,7 @@ export const Board: React.FC = () => {
                       key={`cell-${row}-${col}`}
                       className={`cell game-cell-option-wrap ${
                         fixedValue === 0 ? 'fixed-voltorb' : ''
-                      } ${
+                      } ${showOptions ? 'show-options' : ''} ${
                         gameStarted && fixedValue === null && !showOptions
                           ? 'hidden-cell'
                           : ''
