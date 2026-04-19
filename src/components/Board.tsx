@@ -66,6 +66,8 @@ export const Board: React.FC = () => {
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
   const [isDragOverPreview, setIsDragOverPreview] = useState(false);
   const [convertStatus, setConvertStatus] = useState<string>('');
+  const [isConvertingImage, setIsConvertingImage] = useState(false);
+  const [convertTextFrame, setConvertTextFrame] = useState(0);
 
   const hintRowRefs = useRef<HTMLInputElement[][]>(
     Array.from({ length: BOARD_SIZE }, () => Array(2)),
@@ -132,6 +134,21 @@ export const Board: React.FC = () => {
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (!isConvertingImage) {
+      setConvertTextFrame(0);
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setConvertTextFrame((prev) => (prev + 1) % 4);
+    }, 350);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [isConvertingImage]);
 
   useEffect(() => {
     if (gameStarted && isLoading) {
@@ -478,6 +495,33 @@ export const Board: React.FC = () => {
     setHintErrorMap({});
   };
 
+  const resetHintInputs = () => {
+    hintRowRefs.current.forEach((pair) => {
+      const [sumInput, voltInput] = pair;
+      if (sumInput) sumInput.value = '0';
+      if (voltInput) voltInput.value = '0';
+    });
+
+    hintColRefs.current.forEach((pair) => {
+      const [sumInput, voltInput] = pair;
+      if (sumInput) sumInput.value = '0';
+      if (voltInput) voltInput.value = '0';
+    });
+
+    setHintErrorMap({});
+  };
+
+  const resetBoardProgress = () => {
+    setAnalysis([]);
+    setAllCandidateBoards([]);
+    setBoardState(
+      Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(null)),
+    );
+    setBoardHistory([]);
+    setExpandedCells(new Set());
+    setTooltip(null);
+  };
+
   const handleConvertImageClick = async () => {
     if (!uploadedImage) {
       setConvertStatus('Upload an HGSS board screenshot first.');
@@ -491,7 +535,11 @@ export const Board: React.FC = () => {
       return;
     }
 
+    resetBoardProgress();
+    resetHintInputs();
+
     try {
+      setIsConvertingImage(true);
       setConvertStatus('Converting image...');
       const extracted = await extractHintsFromImageBitmap(
         uploadedImageBlobRef.current,
@@ -508,8 +556,13 @@ export const Board: React.FC = () => {
           ? error.message
           : 'Failed to convert screenshot into hints.';
       setConvertStatus(message);
+    } finally {
+      setIsConvertingImage(false);
     }
   };
+
+  const convertDotCounts = [1, 2, 3, 2];
+  const animatedConvertStatus = `Converting image${'.'.repeat(convertDotCounts[convertTextFrame])}`;
 
   return (
     <div className='board-wrapper'>
@@ -585,13 +638,17 @@ export const Board: React.FC = () => {
           type='button'
           className='control-button convert-button pixel-button'
           onClick={handleConvertImageClick}
-          disabled={!uploadedImage}
+          disabled={!uploadedImage || isConvertingImage}
         >
           Convert Image To Grid
         </button>
       </div>
 
-      {convertStatus && <div className='convert-status'>{convertStatus}</div>}
+      {(convertStatus || isConvertingImage) && (
+        <div className='convert-status'>
+          {isConvertingImage ? animatedConvertStatus : convertStatus}
+        </div>
+      )}
 
       <div className='board-panel pixel-border'>
         <div className='board-grid-fixed'>
