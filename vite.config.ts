@@ -112,5 +112,6 @@ function copilotHintExtractionPlugin(): Plugin {
 
 // https://vite.dev/config/
 export default defineConfig({
+  base: '/voltorb-flip/',
   plugins: [react(), copilotHintExtractionPlugin()],
 });

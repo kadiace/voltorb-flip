@@ -1,54 +1,87 @@
-# React + TypeScript + Vite
+# Voltorb Flip Solver
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Get your coin [Here](https://kadiace.github.io/voltorb-flip/)!
 
-Currently, two official plugins are available:
+Voltorb Flip is a puzzle minigame from **Pokémon HeartGold / SoulSilver**.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+<p align="center">
+  <img src="public/GameCenter.png" alt="Game Center screen" height="320" />
+  <img src="public/GameTable.png" alt="Game Table screen" height="320" />
+</p>
 
-## Expanding the ESLint configuration
+## Voltorb Flip?
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+Each row and column gives you two clues:
 
-```js
-export default tseslint.config({
-  extends: [
-    // Remove ...tseslint.configs.recommended and replace with this
-    ...tseslint.configs.recommendedTypeChecked,
-    // Alternatively, use this for stricter rules
-    ...tseslint.configs.strictTypeChecked,
-    // Optionally, add this for stylistic rules
-    ...tseslint.configs.stylisticTypeChecked,
-  ],
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ['./tsconfig.node.json', './tsconfig.app.json'],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-});
-```
+- the **sum** of the non-zero tiles
+- the **number of Voltorbs** (`0` tiles)
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+![alt text](public/Board.png)
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x';
-import reactDom from 'eslint-plugin-react-dom';
+Your goal is to reveal the valuable tiles (`2` and `3`) without hitting a Voltorb.
 
-export default tseslint.config({
-  plugins: {
-    // Add the react-x and react-dom plugins
-    'react-x': reactX,
-    'react-dom': reactDom,
-  },
-  rules: {
-    // other rules...
-    // Enable its recommended typescript rules
-    ...reactX.configs['recommended-typescript'].rules,
-    ...reactDom.configs.recommended.rules,
-  },
-});
-```
+This app is built to make that process easier.
+
+Instead of guessing, just follow the app's recommendations.
+
+It focuses on two core features:
+
+1. **Board analysis and next-move recommendations**
+2. **Screenshot-to-hint extraction** for faster input
+
+---
+
+## 1. What do I do?
+
+From the moment you open the site, the flow is simple:
+
+1. Upload a screenshot or photo.
+
+2. Press **Convert Image To Grid**.
+
+   - The app extracts the row and column hints from the image.
+
+3. Check Row/Col Hint extracted well.
+
+4. Press **Start**.
+
+   - The solver begins analyzing the board.
+
+5. Click the cell the app recommends.
+
+   - Then enter the actual result you saw in-game: `0`, `1`, `2`, or `3`.
+
+6. Let the app update the board and recommendation.
+
+7. Repeat until the puzzle is solved.
+
+If needed, you can also undo your latest step with the **Undo** button or `Ctrl+Z` / `Cmd+Z`.
+
+---
+
+## 2. The two core features
+
+### A. Solver recommendations
+
+Once you press **Start**, the app analyzes the board and suggests which cell to check next.
+
+- It helps you avoid risky guesses.
+- It updates after every revealed result.
+- You can hover over cells to see the probability of `0 / 1 / 2 / 3`.
+
+This makes it easier to follow a clear, repeatable solve flow instead of relying on intuition.
+
+### B. Screenshot hint extraction
+
+You do not need to type every hint by hand.
+
+Upload a screenshot or photo, press **Convert Image To Grid**, and the app fills in the row/column hints for you.
+
+- Good for emulator screenshots
+- Good for pasted clipboard captures
+- Good for quick phone-photo input
+
+This feature is meant to speed up setup.
+It reads the **hint numbers**, not the hidden board itself.
+
+---
