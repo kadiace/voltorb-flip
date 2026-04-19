@@ -11,127 +11,20 @@ export interface ImageDataLike {
   data: Uint8ClampedArray | Uint8Array;
 }
 
-declare global {
-  interface Window {
-    __VOLTORB_FLIP_CONFIG__?: {
-      hintExtractionApiUrl?: string;
-      copilotModel?: string;
-    };
-  }
-}
-
 const HINT_PAIR_COUNT = 5;
-const DEFAULT_COPILOT_MODEL = 'gpt-4.1';
 const DEFAULT_BROWSER_EXTRACTION_API_URL = '/api/extract-hints';
-const COPILOT_PROMPT = `
-You are extracting Voltorb Flip hint numbers from a single screenshot.
 
-Read only the 5 row hint pairs on the left side of the board and the 5 column hint pairs on the top side of the board.
-Each hint pair is [sum, voltorbCount].
-
-Return JSON only with this exact shape:
-{
-  "rowHintValues": [["", ""], ["", ""], ["", ""], ["", ""], ["", ""]],
-  "colHintValues": [["", ""], ["", ""], ["", ""], ["", ""], ["", ""]]
-}
-
-Rules:
-- Return strings, not numbers.
-- rowHintValues must contain exactly 5 pairs.
-- colHintValues must contain exactly 5 pairs.
-- Valid sum values are 0 through 15.
-- Valid voltorbCount values are 0 through 5.
-- Do not include markdown fences or any explanation.
-`.trim();
+declare const __VOLTORB_FLIP_API_KEY__: string | undefined;
 
 interface ExtractionRequestPayload {
   base64Image: string;
   mimeType: string;
-  model: string;
-  prompt: string;
 }
 
 interface BrowserExtractionApiResponse {
   rowHintValues?: unknown;
   colHintValues?: unknown;
-  raw?: unknown;
   error?: unknown;
-}
-
-interface CopilotModelInfo {
-  id: string;
-  capabilities: {
-    supports: {
-      vision: boolean;
-    };
-  };
-}
-
-interface CopilotSdkSession {
-  sendAndWait(options: {
-    prompt: string;
-    attachments: Array<
-      | {
-          type: 'blob';
-          data: string;
-          mimeType: string;
-          displayName?: string;
-        }
-      | {
-          type: 'file';
-          path: string;
-          displayName?: string;
-        }
-    >;
-  }): Promise<
-    | {
-        data: {
-          content: string;
-        };
-      }
-    | undefined
-  >;
-  disconnect(): Promise<void>;
-}
-
-interface CopilotSdkClient {
-  start(): Promise<void>;
-  stop(): Promise<unknown>;
-  listModels(): Promise<CopilotModelInfo[]>;
-  createSession(options: {
-    model: string;
-    onPermissionRequest: () => { kind: 'approved' };
-  }): Promise<CopilotSdkSession>;
-}
-
-interface CopilotSdkClientConstructor {
-  new (options: {
-    cliUrl?: string;
-    githubToken?: string;
-    useLoggedInUser?: boolean;
-  }): CopilotSdkClient;
-}
-
-interface CopilotSdkModule {
-  CopilotClient: CopilotSdkClientConstructor;
-  approveAll(): { kind: 'approved' };
-}
-
-interface NodeFsPromisesModule {
-  mkdtemp(prefix: string): Promise<string>;
-  writeFile(path: string, data: Uint8Array): Promise<void>;
-  rm(
-    path: string,
-    options: { recursive?: boolean; force?: boolean },
-  ): Promise<void>;
-}
-
-interface NodeOsModule {
-  tmpdir(): string;
-}
-
-interface NodePathModule {
-  join(...paths: string[]): string;
 }
 
 function createEmptyHintValues(): ExtractedHintValues {
@@ -147,45 +40,22 @@ function createEmptyHintValues(): ExtractedHintValues {
   };
 }
 
-function getWindowConfig(): Window['__VOLTORB_FLIP_CONFIG__'] | undefined {
-  if (typeof window === 'undefined') {
-    return undefined;
+function getBrowserExtractionApiUrl(): string {
+  if (typeof document !== 'undefined') {
+    const meta = document.querySelector(
+      'meta[name="hint-extraction-api-url"]',
+    ) as HTMLMetaElement | null;
+    const value = meta?.content?.trim();
+    if (value) {
+      return value;
+    }
   }
 
-  return window.__VOLTORB_FLIP_CONFIG__;
-}
-
-function getProcessEnvValue(name: string): string | undefined {
-  const maybeProcess = globalThis as typeof globalThis & {
-    process?: {
-      env?: Record<string, string | undefined>;
-    };
-  };
-
-  return maybeProcess.process?.env?.[name];
-}
-
-function getCopilotModel(): string {
-  return (
-    getProcessEnvValue('VOLTORB_FLIP_COPILOT_MODEL') ??
-    getWindowConfig()?.copilotModel ??
-    DEFAULT_COPILOT_MODEL
-  );
-}
-
-function getBrowserExtractionApiUrl(): string {
-  return (
-    getWindowConfig()?.hintExtractionApiUrl ??
-    DEFAULT_BROWSER_EXTRACTION_API_URL
-  );
+  return DEFAULT_BROWSER_EXTRACTION_API_URL;
 }
 
 function isBrowserRuntime(): boolean {
   return typeof window !== 'undefined' && typeof document !== 'undefined';
-}
-
-function hasDirectCopilotRuntime(): boolean {
-  return !isBrowserRuntime();
 }
 
 function toByteArray(data: Uint8Array | Uint8ClampedArray): Uint8Array {
@@ -286,7 +156,7 @@ function extractJsonObject(rawText: string): string {
     return trimmed.slice(firstBraceIndex, lastBraceIndex + 1);
   }
 
-  throw new Error('Copilot did not return a JSON object for hint extraction.');
+  throw new Error('Hint extraction API did not return a JSON object.');
 }
 
 function normalizeHintValue(value: unknown, maximum: number): string {
@@ -322,7 +192,9 @@ function normalizeHintPairs(rawPairs: unknown): HintValuePair[] {
   });
 }
 
-function parseExtractedHintValues(rawPayload: string | BrowserExtractionApiResponse) {
+function parseExtractedHintValues(
+  rawPayload: string | BrowserExtractionApiResponse,
+): ExtractedHintValues {
   const parsedPayload =
     typeof rawPayload === 'string'
       ? (JSON.parse(extractJsonObject(rawPayload)) as BrowserExtractionApiResponse)
@@ -331,23 +203,36 @@ function parseExtractedHintValues(rawPayload: string | BrowserExtractionApiRespo
   return {
     rowHintValues: normalizeHintPairs(parsedPayload.rowHintValues),
     colHintValues: normalizeHintPairs(parsedPayload.colHintValues),
-  } satisfies ExtractedHintValues;
+  };
 }
 
-async function requestHintsViaBrowserApi(
-  blob: Blob,
-): Promise<ExtractedHintValues> {
+async function requestHintsViaBrowserApi(blob: Blob): Promise<ExtractedHintValues> {
+  const apiUrl = getBrowserExtractionApiUrl();
+  const apiKey = __VOLTORB_FLIP_API_KEY__;
+
+  if (
+    apiUrl === DEFAULT_BROWSER_EXTRACTION_API_URL &&
+    typeof window !== 'undefined' &&
+    window.location.hostname.endsWith('github.io')
+  ) {
+    throw new Error(
+      'Screenshot hint extraction is not available on the GitHub Pages deployment. ' +
+        'Set <meta name="hint-extraction-api-url" content="..."> in index.html to your backend API.',
+    );
+  }
+
   const payload: ExtractionRequestPayload = {
     base64Image: await blobToBase64(blob),
     mimeType: blob.type || 'image/png',
-    model: getCopilotModel(),
-    prompt: COPILOT_PROMPT,
   };
 
-  const response = await fetch(getBrowserExtractionApiUrl(), {
+  const response = await fetch(apiUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      ...(typeof apiKey === 'string' && apiKey.trim()
+        ? { 'x-api-key': apiKey.trim() }
+        : {}),
     },
     body: JSON.stringify(payload),
   });
@@ -363,146 +248,15 @@ async function requestHintsViaBrowserApi(
     } catch {
       if (response.status === 404) {
         errorMessage =
-          'Hint extraction API was not found. Run the app through Vite dev/preview with the local API enabled, or configure a custom hintExtractionApiUrl.';
+          'Hint extraction API was not found. Set <meta name="hint-extraction-api-url" content="..."> in index.html to your backend API.';
       }
     }
 
-    throw new Error(
-      errorMessage,
-    );
+    throw new Error(errorMessage);
   }
 
   const data = (await response.json()) as BrowserExtractionApiResponse;
-  if (typeof data.raw === 'string') {
-    return parseExtractedHintValues(data.raw);
-  }
-
   return parseExtractedHintValues(data);
-}
-
-async function loadCopilotSdk(): Promise<CopilotSdkModule> {
-  const moduleName = '@github/copilot-sdk';
-  return import(/* @vite-ignore */ moduleName) as Promise<CopilotSdkModule>;
-}
-
-async function createTemporaryImageFile(blob: Blob): Promise<{
-  filePath: string;
-  cleanup: () => Promise<void>;
-}> {
-  const fsModuleName = 'node:fs/promises';
-  const osModuleName = 'node:os';
-  const pathModuleName = 'node:path';
-  const fsModule = (await import(
-    /* @vite-ignore */ fsModuleName
-  )) as NodeFsPromisesModule;
-  const osModule = (await import(
-    /* @vite-ignore */ osModuleName
-  )) as NodeOsModule;
-  const pathModule = (await import(
-    /* @vite-ignore */ pathModuleName
-  )) as NodePathModule;
-  const tempDirectory = await fsModule.mkdtemp(
-    pathModule.join(osModule.tmpdir(), 'voltorb-flip-'),
-  );
-  const fileExtension = blob.type === 'image/bmp' ? 'bmp' : 'png';
-  const filePath = pathModule.join(tempDirectory, `hint-upload.${fileExtension}`);
-  const bytes = new Uint8Array(await blob.arrayBuffer());
-
-  await fsModule.writeFile(filePath, bytes);
-
-  return {
-    filePath,
-    cleanup: async () => {
-      await fsModule.rm(tempDirectory, { recursive: true, force: true });
-    },
-  };
-}
-
-async function requestHintsViaCopilotSdk(
-  blob: Blob,
-): Promise<ExtractedHintValues> {
-  const sdk = await loadCopilotSdk();
-  const { CopilotClient, approveAll } = sdk;
-  const clientOptions: {
-    cliUrl?: string;
-    githubToken?: string;
-    useLoggedInUser?: boolean;
-  } = {};
-
-  const cliUrl = getProcessEnvValue('COPILOT_CLI_URL');
-  if (cliUrl) {
-    clientOptions.cliUrl = cliUrl;
-  }
-
-  const githubToken = getProcessEnvValue('GITHUB_TOKEN');
-  if (githubToken) {
-    clientOptions.githubToken = githubToken;
-    clientOptions.useLoggedInUser = false;
-  }
-
-  const client = new CopilotClient(clientOptions);
-  await client.start();
-
-  try {
-    const requestedModel = getCopilotModel();
-    const availableModels = await client.listModels();
-    const selectedModel =
-      availableModels.find((model) => model.id === requestedModel) ?? null;
-
-    if (!selectedModel) {
-      throw new Error(
-        `Copilot model "${requestedModel}" is not available in this environment.`,
-      );
-    }
-
-    if (!selectedModel.capabilities.supports.vision) {
-      throw new Error(
-        `Copilot model "${requestedModel}" does not support image input.`,
-      );
-    }
-
-    const session = await client.createSession({
-      model: selectedModel.id,
-      onPermissionRequest: approveAll,
-    });
-
-    try {
-      const temporaryImageFile = await createTemporaryImageFile(blob);
-
-      try {
-        const response = await session.sendAndWait({
-          prompt: COPILOT_PROMPT,
-          attachments: [
-            {
-              type: 'file',
-              path: temporaryImageFile.filePath,
-              displayName: 'voltorb-flip-hints-image',
-            },
-          ],
-        });
-
-        const responseText = response?.data.content?.trim();
-        if (!responseText) {
-          throw new Error('Copilot returned an empty response for hint extraction.');
-        }
-
-        return parseExtractedHintValues(responseText);
-      } finally {
-        await temporaryImageFile.cleanup();
-      }
-    } finally {
-      await session.disconnect();
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(
-      `Copilot hint extraction failed. ${message} ` +
-        'In the browser, expose a POST /api/extract-hints endpoint. ' +
-        'In Node, configure Copilot CLI auth or set GITHUB_TOKEN.',
-    );
-  } finally {
-    await client.stop();
-  }
 }
 
 export function extractHintsFromImageData(
@@ -527,9 +281,7 @@ export async function extractHintsFromImageBitmap(
     return requestHintsViaBrowserApi(blob);
   }
 
-  if (!hasDirectCopilotRuntime()) {
-    throw new Error('No supported runtime is available for hint extraction.');
-  }
-
-  return requestHintsViaCopilotSdk(blob);
+  throw new Error(
+    'Hint extraction is only supported in the browser via a configured API endpoint.',
+  );
 }

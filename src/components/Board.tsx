@@ -561,7 +561,7 @@ export const Board: React.FC = () => {
     }
   };
 
-  const convertDotCounts = [1, 2, 3, 2];
+  const convertDotCounts = [0, 1, 2, 3, 2, 1];
   const animatedConvertStatus = `Converting image${'.'.repeat(convertDotCounts[convertTextFrame])}`;
 
   return (
