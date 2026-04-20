@@ -2,7 +2,7 @@
 
 Get your coin [Here](https://kadiace.github.io/voltorb-flip/)!
 
-Voltorb Flip is a puzzle minigame from **Pokémon HeartGold / SoulSilver**.
+Voltorb Flip is a puzzle minigame from **Pokémon HG/SS**.
 
 <p align="center">
   <img src="public/GameCenter.png" alt="Game Center screen" height="320" />
@@ -31,9 +31,11 @@ It focuses on two core features:
 
 ---
 
-## 1. What do I do?
+## So, What do I do?
 
 From the moment you open the site, the flow is simple:
+
+![alt text](public/Convert.gif)
 
 1. Upload a screenshot or photo.
 
@@ -41,25 +43,25 @@ From the moment you open the site, the flow is simple:
 
    - The app extracts the row and column hints from the image.
 
-3. Check Row/Col Hint extracted well.
+![alt text](public/Solve.gif)
 
-4. Press **Start**.
+3. Press **Start**.
 
    - The solver begins analyzing the board.
 
-5. Click the cell the app recommends.
+4. Click the cell the app recommends on your game screen.
 
    - Then enter the actual result you saw in-game: `0`, `1`, `2`, or `3`.
 
-6. Let the app update the board and recommendation.
+5. Let the app update the board and recommendation.
 
-7. Repeat until the puzzle is solved.
+6. Repeat until the puzzle is solved.
 
 If needed, you can also undo your latest step with the **Undo** button or `Ctrl+Z` / `Cmd+Z`.
 
 ---
 
-## 2. The two core features
+## The two core features
 
 ### A. Solver recommendations
 
