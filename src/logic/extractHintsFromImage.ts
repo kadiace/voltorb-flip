@@ -240,6 +240,19 @@ async function requestHintsViaBrowserApi(blob: Blob): Promise<ExtractedHintValue
   if (!response.ok) {
     let errorMessage = `Hint extraction request failed with status ${response.status}.`;
 
+    if (response.status === 429) {
+      const retryAfterRaw = response.headers.get('Retry-After');
+      const retryAfterSeconds = retryAfterRaw ? Number(retryAfterRaw) : NaN;
+      const retryHint =
+        Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+          ? ` (try again in ~${Math.ceil(retryAfterSeconds)}s)`
+          : '';
+
+      errorMessage =
+        `You've reached the request limit for screenshot extraction. ` +
+        `Please wait a bit and try again${retryHint}.`;
+    }
+
     try {
       const errorPayload = (await response.json()) as BrowserExtractionApiResponse;
       if (typeof errorPayload.error === 'string' && errorPayload.error) {
