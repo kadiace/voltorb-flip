@@ -68,6 +68,7 @@ export const Board: React.FC = () => {
   const [convertStatus, setConvertStatus] = useState<string>('');
   const [isConvertingImage, setIsConvertingImage] = useState(false);
   const [convertTextFrame, setConvertTextFrame] = useState(0);
+  const [toastMessage, setToastMessage] = useState<string>('');
 
   const hintRowRefs = useRef<HTMLInputElement[][]>(
     Array.from({ length: BOARD_SIZE }, () => Array(2)),
@@ -78,6 +79,20 @@ export const Board: React.FC = () => {
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const uploadedImageUrlRef = useRef<string | null>(null);
   const uploadedImageBlobRef = useRef<Blob | null>(null);
+  const analysisRunIdRef = useRef(0);
+  const analysisTimeoutIdRef = useRef<number | null>(null);
+  const toastTimeoutIdRef = useRef<number | null>(null);
+
+  const showCenterToast = useCallback((message: string) => {
+    setToastMessage(message);
+    if (toastTimeoutIdRef.current !== null) {
+      window.clearTimeout(toastTimeoutIdRef.current);
+    }
+    toastTimeoutIdRef.current = window.setTimeout(() => {
+      setToastMessage('');
+      toastTimeoutIdRef.current = null;
+    }, 2200);
+  }, []);
 
   const setPreviewImageFromBlob = useCallback((file: Blob) => {
     const nextImageUrl = URL.createObjectURL(file);
@@ -132,6 +147,11 @@ export const Board: React.FC = () => {
       if (uploadedImageUrlRef.current) {
         URL.revokeObjectURL(uploadedImageUrlRef.current);
       }
+
+      if (toastTimeoutIdRef.current !== null) {
+        window.clearTimeout(toastTimeoutIdRef.current);
+        toastTimeoutIdRef.current = null;
+      }
     };
   }, []);
 
@@ -152,7 +172,20 @@ export const Board: React.FC = () => {
 
   useEffect(() => {
     if (gameStarted && isLoading) {
-      setTimeout(() => {
+      // Cancel any prior scheduled analysis.
+      if (analysisTimeoutIdRef.current !== null) {
+        window.clearTimeout(analysisTimeoutIdRef.current);
+        analysisTimeoutIdRef.current = null;
+      }
+
+      const runId = ++analysisRunIdRef.current;
+
+      analysisTimeoutIdRef.current = window.setTimeout(() => {
+        // Ignore stale analysis runs that were cancelled/restarted.
+        if (analysisRunIdRef.current !== runId) {
+          return;
+        }
+
         const currentBoardState = boardState.map((row) => [...row]);
         const hintState = getCurrentHint();
 
@@ -163,11 +196,30 @@ export const Board: React.FC = () => {
           );
           setAllCandidateBoards(initialResult.candidateBoards);
           setAnalysis(initialResult.stats);
+
+          if (initialResult.candidateBoards.length === 0) {
+            // Invalid hints -> stop the solver and revert the Start/Stop button.
+            stopSolverAndClearAnalysis();
+
+            showCenterToast(
+              'No valid boards with the current hints. Please check again.',
+            );
+          }
         } else {
           const filteredBoards = filterBoardsByFixedCells(
             allCandidateBoards,
             currentBoardState,
           );
+
+          if (filteredBoards.length === 0) {
+            // Invalid hints -> stop the solver and revert the Start/Stop button.
+            stopSolverAndClearAnalysis();
+
+            showCenterToast(
+              'No valid boards with the current hints. Please check again.',
+            );
+          }
+
           setAnalysis(
             filteredBoards.length > 0
               ? calculateCellStatistics(filteredBoards)
@@ -177,6 +229,13 @@ export const Board: React.FC = () => {
 
         setIsLoading(false);
       }, 100);
+
+      return () => {
+        if (analysisTimeoutIdRef.current !== null) {
+          window.clearTimeout(analysisTimeoutIdRef.current);
+          analysisTimeoutIdRef.current = null;
+        }
+      };
     }
   }, [allCandidateBoards, boardState, gameStarted, isLoading]);
 
@@ -498,20 +557,29 @@ export const Board: React.FC = () => {
   const resetHintInputs = () => {
     hintRowRefs.current.forEach((pair) => {
       const [sumInput, voltInput] = pair;
-      if (sumInput) sumInput.value = '0';
-      if (voltInput) voltInput.value = '0';
+      if (sumInput) sumInput.value = '';
+      if (voltInput) voltInput.value = '';
     });
 
     hintColRefs.current.forEach((pair) => {
       const [sumInput, voltInput] = pair;
-      if (sumInput) sumInput.value = '0';
-      if (voltInput) voltInput.value = '0';
+      if (sumInput) sumInput.value = '';
+      if (voltInput) voltInput.value = '';
     });
 
     setHintErrorMap({});
   };
 
   const resetBoardProgress = () => {
+    // Stop any in-flight analysis run.
+    analysisRunIdRef.current += 1;
+    if (analysisTimeoutIdRef.current !== null) {
+      window.clearTimeout(analysisTimeoutIdRef.current);
+      analysisTimeoutIdRef.current = null;
+    }
+    setIsLoading(false);
+    setGameStarted(false);
+
     setAnalysis([]);
     setAllCandidateBoards([]);
     setBoardState(
@@ -520,6 +588,20 @@ export const Board: React.FC = () => {
     setBoardHistory([]);
     setExpandedCells(new Set());
     setTooltip(null);
+  };
+
+  const stopSolverAndClearAnalysis = () => {
+    // Stop any in-flight analysis run.
+    analysisRunIdRef.current += 1;
+    if (analysisTimeoutIdRef.current !== null) {
+      window.clearTimeout(analysisTimeoutIdRef.current);
+      analysisTimeoutIdRef.current = null;
+    }
+
+    setIsLoading(false);
+    setGameStarted(false);
+    setAllCandidateBoards([]);
+    setAnalysis([]);
   };
 
   const handleConvertImageClick = async () => {
@@ -546,10 +628,6 @@ export const Board: React.FC = () => {
       );
       applyExtractedHints(extracted.rowHintValues, extracted.colHintValues);
       setConvertStatus('Hints extracted from image.');
-
-      if (gameStarted) {
-        setIsLoading(true);
-      }
     } catch (error) {
       const message =
         error instanceof Error
@@ -652,6 +730,11 @@ export const Board: React.FC = () => {
 
       <div className='board-panel pixel-border'>
         <div className='board-grid-fixed'>
+          {toastMessage && (
+            <div className='center-toast-overlay' role='status'>
+              <div className='center-toast'>{toastMessage}</div>
+            </div>
+          )}
           {(() => {
             const recommendedCellKeys = getRecommendedCellKeys();
 
@@ -837,7 +920,9 @@ export const Board: React.FC = () => {
           >
             <button
               onClick={handleStartClick}
-              className='control-button start-button pixel-button grid-action-button'
+              className={`control-button start-button pixel-button grid-action-button ${
+                gameStarted ? 'is-stop' : 'is-start'
+              }`}
               aria-label={gameStarted ? 'Stop game' : 'Start game'}
             >
               <span className='start-symbol' aria-hidden='true'>
@@ -863,6 +948,7 @@ export const Board: React.FC = () => {
         Top number: row/column sum | Bottom number: Voltorb count
       </div>
       {tooltip && <CellTooltip {...tooltip} />}
+
     </div>
   );
 };

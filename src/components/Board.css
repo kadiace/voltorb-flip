@@ -487,6 +487,31 @@
   animation: spin 0.95s linear infinite;
 }
 
+.center-toast-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.center-toast {
+  padding: 0.65rem 0.85rem;
+  border: 3px solid rgba(15, 21, 33, 0.95);
+  background: rgba(10, 16, 26, 0.92);
+  color: #ffe9b1;
+  font-size: 0.62rem;
+  letter-spacing: 0.02em;
+  text-align: center;
+  width: min(340px, calc(100% - 24px));
+  box-shadow:
+    inset -4px -4px 0 rgba(0, 0, 0, 0.55),
+    inset 4px 4px 0 rgba(255, 255, 255, 0.08),
+    0 12px 26px rgba(0, 0, 0, 0.45);
+}
+
 @keyframes spin {
   from {
     transform: translate(-50%, -50%) rotate(0deg);
